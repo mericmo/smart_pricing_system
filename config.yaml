@@ -1,0 +1,179 @@
+# 日志配置
+logging:
+  level: INFO
+  file: logs/pricing_system.log
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  max_bytes: 10485760  # 10MB
+  backup_count: 5
+
+# 数据配置
+data:
+  transaction_data_path: "data/historical_transactions.csv"
+  db_path: "data/sales_data.db"
+  max_history_days: 365
+  min_transactions_for_training: 50
+  backup_enabled: true
+  backup_path: "data/backups/"
+  cleanup_days: 30
+
+# 特征配置
+features:
+  time_features:
+    - hour_of_day
+    - day_of_week
+    - is_weekend
+    - month
+    - quarter
+    - hour_sin
+    - hour_cos
+  historical_features:
+    - hist_avg_sales
+    - hist_sales_std
+    - hist_promo_sales_ratio
+    - sales_trend
+    - last_week_sales
+  price_features:
+    - avg_price
+    - price_std
+    - min_price
+    - max_price
+    - avg_discount
+    - price_elasticity
+  customer_features:
+    - price_sensitive_customers
+    - loyal_customers
+    - average_basket_size
+    - repeat_purchase_rate
+  normalize_features: true
+  feature_scaling_method: "minmax"
+  feature_selection_enabled: true
+  feature_selection_method: "mutual_info"
+
+# 预测配置
+prediction:
+  model_type: "ensemble"
+  ensemble_models:
+    - xgboost
+    - lightgbm
+    - random_forest
+  train_test_split_ratio: 0.8
+  cross_validation_folds: 5
+  hyperparameter_tuning: true
+  hyperparameter_search_space:
+    xgboost:
+      n_estimators: [50, 100, 200]
+      max_depth: [3, 5, 7]
+      learning_rate: [0.01, 0.1, 0.3]
+    lightgbm:
+      num_leaves: [31, 50, 100]
+      learning_rate: [0.01, 0.1, 0.3]
+      n_estimators: [50, 100, 200]
+  prediction_horizon_minutes: 30
+  confidence_level: 0.95
+  retrain_frequency_days: 7
+
+# 优化配置
+optimization:
+  time_segments: 4
+  min_segment_duration_minutes: 15
+  max_segment_duration_minutes: 60
+  discount_precision: 0.01
+  optimization_method: "dynamic_programming"  # dp, genetic, rl
+  objective_function: "max_profit"  # max_profit, max_sales, balanced
+  constraints:
+    min_profit_margin: 0.1
+    max_discount_change_per_step: 0.15
+    min_time_between_changes: 900
+    max_price_changes: 10
+    min_discount: 0.4
+    max_discount: 0.9
+  genetic_algorithm:
+    population_size: 50
+    generations: 100
+    crossover_rate: 0.8
+    mutation_rate: 0.2
+
+# 强化学习配置
+rl:
+  enabled: false
+  state_dim: 8
+  action_dim: 7
+  hidden_dim: 128
+  learning_rate: 0.001
+  gamma: 0.99
+  epsilon_start: 1.0
+  epsilon_end: 0.01
+  epsilon_decay: 0.995
+  memory_size: 100000
+  batch_size: 128
+  target_update_frequency: 1000
+  training_episodes: 10000
+  evaluation_interval: 100
+  prioritized_replay: true
+  dueling_dqn: true
+  noisy_networks: true
+  model_save_path: "models/rl_agent.pth"
+  pretrained_model_path: ""
+
+# 实时调整配置
+real_time:
+  enabled: true
+  monitoring_interval_seconds: 300
+  adjustment_threshold: 0.3
+  max_adjustments_per_session: 3
+  adjustment_delay_minutes: 5
+  performance_metrics_window: 30
+  alert_enabled: true
+  alert_thresholds:
+    sales_deviation: 0.4
+    stock_clearance_rate: 0.3
+    profit_margin: 0.05
+
+# 商品品类配置
+product_categories:
+  fresh_food:
+    price_elasticity: 1.5
+    shelf_life_hours: 24
+    base_demand_rate: 10.0
+    promotion_sensitivity: 1.8
+    clearance_discount_pattern: "aggressive"
+  bakery:
+    price_elasticity: 1.3
+    shelf_life_hours: 12
+    base_demand_rate: 8.0
+    promotion_sensitivity: 1.5
+    clearance_discount_pattern: "moderate"
+  dairy:
+    price_elasticity: 1.2
+    shelf_life_hours: 48
+    base_demand_rate: 12.0
+    promotion_sensitivity: 1.3
+    clearance_discount_pattern: "conservative"
+  default:
+    price_elasticity: 1.2
+    shelf_life_hours: 24
+    base_demand_rate: 5.0
+    promotion_sensitivity: 1.0
+    clearance_discount_pattern: "moderate"
+
+# API配置
+api:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  workers: 4
+  cors_enabled: true
+  rate_limit_enabled: true
+  rate_limit_requests: 100
+  rate_limit_window: 60
+  auth_enabled: false
+  api_key_header: "X-API-Key"
+
+# 性能配置
+performance:
+  cache_enabled: true
+  cache_ttl_seconds: 3600
+  max_concurrent_requests: 100
+  request_timeout_seconds: 30
+  memory_limit_mb: 1024
+  gc_threshold: 0.7
