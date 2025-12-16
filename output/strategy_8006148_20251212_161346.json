@@ -1,0 +1,44 @@
+{
+  "strategy_id": "bc080244-1676-4209-9b13-44a9ddb3c314",
+  "product_code": "8006148",
+  "product_name": "猪五花肉块350g",
+  "original_price": 17.99,
+  "cost_price": 5.396999999999999,
+  "initial_stock": 60,
+  "promotion_start": "18:00",
+  "promotion_end": "22:00",
+  "min_discount": 0.4,
+  "max_discount": 0.7,
+  "time_segments": 2,
+  "pricing_schedule": [
+    {
+      "start_time": "18:00",
+      "end_time": "20:00",
+      "discount": 0.7,
+      "discount_percentage": "70%",
+      "price": 5.996666666666666,
+      "expected_sales": 0.05245901639344262,
+      "expected_revenue": 0.3145792349726776,
+      "expected_profit": 0.03145792349726777
+    },
+    {
+      "start_time": "20:00",
+      "end_time": "22:00",
+      "discount": 0.7,
+      "discount_percentage": "70%",
+      "price": 5.996666666666666,
+      "expected_sales": 0.06557377049180328,
+      "expected_revenue": 0.39322404371584696,
+      "expected_profit": 0.03932240437158471
+    }
+  ],
+  "evaluation": {
+    "total_expected_sales": 0.1180327868852459,
+    "total_revenue": 0.7078032786885246,
+    "total_profit": 0.07078032786885248,
+    "remaining_stock": 60,
+    "sell_out_probability": 0.0019672131147540984,
+    "average_discount": 0.7,
+    "recommendation": "按计划执行；若中途销售低于预期，触发实时调整"
+  }
+}

@@ -22,11 +22,6 @@ class PricingOptimizer:
     def __init__(self, demand_predictor, cost_price: float, original_price: float):
         """
         初始化定价优化器
-        
-        Args:
-            demand_predictor: 需求预测器
-            cost_price: 成本价
-            original_price: 原价
         """
         self.demand_predictor = demand_predictor
         self.cost_price = cost_price
@@ -44,18 +39,6 @@ class PricingOptimizer:
                                features: Dict = None) -> List[PricingSegment]:
         """
         优化阶梯定价
-        
-        Args:
-            initial_stock: 初始库存
-            promotion_start: 促销开始时间，格式 "HH:MM"
-            promotion_end: 促销结束时间，格式 "HH:MM"
-            min_discount: 最低折扣（如0.4表示4折）
-            max_discount: 最高折扣（如0.9表示9折）
-            time_segments: 时间段数量
-            features: 特征字典
-            
-        Returns:
-            List[PricingSegment]: 优化的阶梯定价方案
         """
         
         # 解析时间
@@ -96,7 +79,7 @@ class PricingOptimizer:
         """动态规划优化"""
         
         # 离散化折扣空间
-        discount_levels = np.linspace(min_discount, max_discount, num=20)
+        discount_levels = np.linspace(min_discount, max_discount, num=5) #num=20
         
         # 计算时段数量
         num_segments = total_minutes // segment_minutes
@@ -126,9 +109,8 @@ class PricingOptimizer:
                         features=features,
                         discount_rate=discount,
                         time_to_close=time_remaining,
-                        current_stock=s,
-                        base_demand=features.get('hist_avg_sales', 10) if features else 10
-                    )
+                        current_stock=s
+                    )  # 移除了base_demand参数
                     
                     # 实际销售量不能超过库存
                     actual_sales = min(int(predicted_sales), s)
@@ -182,8 +164,7 @@ class PricingOptimizer:
                 features=features,
                 discount_rate=discount,
                 time_to_close=time_remaining,
-                current_stock=current_stock,
-                base_demand=features.get('hist_avg_sales', 10) if features else 10
+                current_stock=current_stock
             )
             actual_sales = min(int(predicted_sales), current_stock)
             
@@ -211,93 +192,11 @@ class PricingOptimizer:
         
         return schedule
     
-    def evaluate_pricing_schedule(self, schedule: List[PricingSegment],
-                                 initial_stock: int) -> Dict:
-        """评估定价方案"""
-        
-        total_expected_sales = sum(segment.expected_sales for segment in schedule)
-        total_revenue = sum(segment.revenue for segment in schedule)
-        total_profit = sum(segment.profit for segment in schedule)
-        remaining_stock = max(0, initial_stock - total_expected_sales)
-        
-        # 计算售罄概率
-        sell_out_probability = min(1.0, total_expected_sales / initial_stock) if initial_stock > 0 else 0
-        
-        # 计算利润率
-        profit_margin = total_profit / total_revenue if total_revenue > 0 else 0
-        
-        # 计算折扣深度
-        avg_discount = np.mean([segment.discount for segment in schedule])
-        
-        evaluation = {
-            'total_expected_sales': total_expected_sales,
-            'total_revenue': round(total_revenue, 2),
-            'total_profit': round(total_profit, 2),
-            'remaining_stock': remaining_stock,
-            'sell_out_probability': round(sell_out_probability, 3),
-            'profit_margin': round(profit_margin, 3),
-            'average_discount': round(avg_discount, 3),
-            'stock_clearance_rate': round(total_expected_sales / initial_stock, 3) if initial_stock > 0 else 0,
-            'recommendation': self._generate_recommendation(sell_out_probability, profit_margin)
-        }
-        
-        return evaluation
-    
-    def _generate_recommendation(self, sell_out_probability: float,
-                               profit_margin: float) -> str:
-        """生成推荐建议"""
-        
-        if sell_out_probability < 0.7:
-            if profit_margin < 0.1:
-                return "风险较高：售罄概率低且利润薄，建议加大折扣力度或考虑捆绑销售"
-            else:
-                return "售罄风险：建议适当增加折扣以提升售罄概率"
-        elif sell_out_probability < 0.9:
-            if profit_margin > 0.2:
-                return "良好平衡：售罄概率和利润均表现良好"
-            else:
-                return "可接受方案：售罄概率尚可，但利润较薄"
-        else:
-            if profit_margin > 0.15:
-                return "优秀方案：高售罄概率且利润可观"
-            else:
-                return "保守方案：售罄概率高但让利较多"
-    
-    def optimize_single_price(self, initial_stock: int,
-                            promotion_hours: Tuple[int, int],
-                            features: Dict) -> float:
-        """优化单一价格（当不允许阶梯定价时）"""
-        
-        # 二分查找最优折扣
-        low = self.min_discount
-        high = 1.0
-        best_discount = 1.0
-        best_profit = -np.inf
-        
-        for _ in range(20):  # 二分查找20次
-            mid = (low + high) / 2
-            
-            # 预测两个折扣的利润
-            profit_mid = self._evaluate_discount_profit(mid, initial_stock, promotion_hours, features)
-            profit_high = self._evaluate_discount_profit(mid + 0.01, initial_stock, promotion_hours, features)
-            
-            if profit_mid > best_profit:
-                best_profit = profit_mid
-                best_discount = mid
-            
-            # 决定搜索方向
-            if profit_high > profit_mid:
-                low = mid
-            else:
-                high = mid
-        
-        return best_discount
-    
     def _evaluate_discount_profit(self, discount: float,
                                  initial_stock: int,
                                  promotion_hours: Tuple[int, int],
                                  features: Dict) -> float:
-        """评估折扣的预期利润"""
+        """评估折扣的预期利润 - 修复方法调用"""
         
         start_hour, end_hour = promotion_hours
         total_hours = (end_hour - start_hour) % 24
@@ -316,9 +215,8 @@ class PricingOptimizer:
                 features=features,
                 discount_rate=discount,
                 time_to_close=time_remaining,
-                current_stock=remaining_stock,
-                base_demand=features.get('hist_avg_sales', 10) if features else 10
-            )
+                current_stock=remaining_stock
+            )  # 移除了base_demand参数
             
             actual_sales = min(int(segment_sales / num_subsegments), remaining_stock)
             predicted_sales += actual_sales
@@ -335,4 +233,129 @@ class PricingOptimizer:
         if remaining_stock > 0:
             profit -= remaining_stock * self.cost_price * 0.5  # 未售出损失成本的一半
         
+        return profit
+
+    def evaluate_pricing_schedule(self, schedule: List[PricingSegment],
+                                  initial_stock: int) -> Dict:
+        """评估定价方案"""
+
+        total_expected_sales = sum(segment.expected_sales for segment in schedule)
+        total_revenue = sum(segment.revenue for segment in schedule)
+        total_profit = sum(segment.profit for segment in schedule)
+        remaining_stock = max(0, initial_stock - total_expected_sales)
+
+        # 计算售罄概率
+        sell_out_probability = min(1.0, total_expected_sales / initial_stock) if initial_stock > 0 else 0
+
+        # 计算利润率
+        profit_margin = total_profit / total_revenue if total_revenue > 0 else 0
+
+        # 计算折扣深度
+        avg_discount = np.mean([segment.discount for segment in schedule])
+
+        evaluation = {
+            'total_expected_sales': total_expected_sales,
+            'total_revenue': round(total_revenue, 2),
+            'total_profit': round(total_profit, 2),
+            'remaining_stock': remaining_stock,
+            'sell_out_probability': round(sell_out_probability, 3),
+            'profit_margin': round(profit_margin, 3),
+            'average_discount': round(avg_discount, 3),
+            'stock_clearance_rate': round(total_expected_sales / initial_stock, 3) if initial_stock > 0 else 0,
+            'recommendation': self._generate_recommendation(sell_out_probability, profit_margin)
+        }
+
+        return evaluation
+
+    def _generate_recommendation(self, sell_out_probability: float,
+                                 profit_margin: float) -> str:
+        """生成推荐建议"""
+
+        if sell_out_probability < 0.7:
+            if profit_margin < 0.1:
+                return "风险较高：售罄概率低且利润薄，建议加大折扣力度或考虑捆绑销售"
+            else:
+                return "售罄风险：建议适当增加折扣以提升售罄概率"
+        elif sell_out_probability < 0.9:
+            if profit_margin > 0.2:
+                return "良好平衡：售罄概率和利润均表现良好"
+            else:
+                return "可接受方案：售罄概率尚可，但利润较薄"
+        else:
+            if profit_margin > 0.15:
+                return "优秀方案：高售罄概率且利润可观"
+            else:
+                return "保守方案：售罄概率高但让利较多"
+    def optimize_single_price(self, initial_stock: int,
+                              promotion_hours: Tuple[int, int],
+                              features: Dict) -> float:
+        """优化单一价格（当不允许阶梯定价时）"""
+
+        # 二分查找最优折扣
+        low = self.min_discount
+        high = 1.0
+        best_discount = 1.0
+        best_profit = -np.inf
+
+        for _ in range(20):  # 二分查找20次
+            mid = (low + high) / 2
+
+            # 预测两个折扣的利润
+            profit_mid = self._evaluate_discount_profit(mid, initial_stock, promotion_hours, features)
+            profit_high = self._evaluate_discount_profit(mid + 0.01, initial_stock, promotion_hours, features)
+
+            if profit_mid > best_profit:
+                best_profit = profit_mid
+                best_discount = mid
+
+            # 决定搜索方向
+            if profit_high > profit_mid:
+                low = mid
+            else:
+                high = mid
+
+        return best_discount
+
+    def _evaluate_discount_profit(self, discount: float,
+                                  initial_stock: int,
+                                  promotion_hours: Tuple[int, int],
+                                  features: Dict) -> float:
+        """评估折扣的预期利润"""
+
+        start_hour, end_hour = promotion_hours
+        total_hours = (end_hour - start_hour) % 24
+
+        # 预测总销量
+        predicted_sales = 0
+        remaining_stock = initial_stock
+
+        # 将促销时间分为若干小段进行预测
+        num_subsegments = 8
+        for i in range(num_subsegments):
+            time_elapsed = i / num_subsegments
+            time_remaining = 1.0 - time_elapsed
+
+            segment_sales = self.demand_predictor.predict_demand(
+                features=features,
+                discount_rate=discount,
+                time_to_close=time_remaining,
+                current_stock=remaining_stock,
+                base_demand=features.get('hist_avg_sales', 10) if features else 10
+            )
+
+            actual_sales = min(int(segment_sales / num_subsegments), remaining_stock)
+            predicted_sales += actual_sales
+            remaining_stock -= actual_sales
+
+            if remaining_stock <= 0:
+                break
+
+        # 计算利润
+        price = self.original_price * discount
+        profit = (price - self.cost_price) * predicted_sales
+
+        # 添加库存剩余惩罚
+        if remaining_stock > 0:
+            profit -= remaining_stock * self.cost_price * 0.5  # 未售出损失成本的一半
+
         return profit

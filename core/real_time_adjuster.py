@@ -5,8 +5,8 @@ import pandas as pd
 import numpy as np
 from dataclasses import dataclass
 
-from core.pricing_strategy_generator import PricingStrategy
-
+# from core.pricing_strategy_generator import PricingStrategy
+from core.pricing_strategy_generator import EnhancedPricingStrategy as PricingStrategy
 @dataclass
 class SalesUpdate:
     """销售更新数据"""

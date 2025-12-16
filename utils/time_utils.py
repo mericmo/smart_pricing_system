@@ -1,6 +1,6 @@
 # utils/time_utils.py
 from datetime import datetime, time, timedelta
-from typing import Tuple, List, Optional, Dict
+from typing import Tuple, List, Optional, Dict, Any
 import pandas as pd
 import numpy as np
 
@@ -183,3 +183,48 @@ def calculate_peak_hours(store_type: str = "supermarket") -> List[Tuple[str, str
     }
     
     return patterns.get(store_type, patterns["supermarket"])
+
+
+def ensure_pandas_timestamp(time_input: Any) -> pd.Timestamp:
+    """确保输入转换为pandas Timestamp"""
+    if isinstance(time_input, pd.Timestamp):
+        return time_input
+    elif isinstance(time_input, datetime):
+        return pd.Timestamp(time_input)
+    elif isinstance(time_input, str):
+        try:
+            return pd.Timestamp(time_input)
+        except:
+            return pd.Timestamp.now()
+    else:
+        return pd.Timestamp.now()
+
+
+def get_day_of_week(time_input: Any) -> int:
+    """获取星期几，兼容datetime和pandas Timestamp"""
+    ts = ensure_pandas_timestamp(time_input)
+    return ts.dayofweek
+
+
+def get_date_features(time_input: Any) -> Dict[str, Any]:
+    """获取日期特征"""
+    ts = ensure_pandas_timestamp(time_input)
+
+    return {
+        'year': ts.year,
+        'month': ts.month,
+        'day': ts.day,
+        'hour': ts.hour,
+        'minute': ts.minute,
+        'second': ts.second,
+        'dayofweek': ts.dayofweek,
+        'dayofyear': ts.dayofyear,
+        'weekofyear': ts.isocalendar()[1],
+        'quarter': ts.quarter,
+        'is_month_start': ts.is_month_start,
+        'is_month_end': ts.is_month_end,
+        'is_quarter_start': ts.is_quarter_start,
+        'is_quarter_end': ts.is_quarter_end,
+        'is_year_start': ts.is_year_start,
+        'is_year_end': ts.is_year_end
+    }
