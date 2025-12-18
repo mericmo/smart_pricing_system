@@ -180,6 +180,7 @@ class EnhancedDemandPredictor:
         """从时间戳提取特征"""
 
         # 时间特征
+        year = timestamp.year
         hour = timestamp.hour
         minute = timestamp.minute
         day_of_week = timestamp.weekday()
@@ -210,6 +211,7 @@ class EnhancedDemandPredictor:
         has_discount = row.get('是否折扣', 0.0)
 
         feature_vector = {
+            "year": year,
             'hour': hour,
             'minute': minute,
             'day_of_week': day_of_week,
@@ -271,7 +273,52 @@ class EnhancedDemandPredictor:
             return
 
         self.model.fit(X, y)
+    def predict_train_set(self,  X: pd.DataFrame):
+        """预测训练集"""
+        # 确保X有正确的列顺序
+        if hasattr(self, 'feature_columns'):
+            # 确保X包含所有训练时的特征列
+            missing_cols = set(self.feature_columns) - set(X.columns)
+            for col in missing_cols:
+                X[col] = 0  # 或使用其他合适的默认值
 
+            # 重新排序列以匹配训练时的顺序
+            X = X[self.feature_columns]
+
+        if self.model_type == 'ensemble':
+            # 集成模型预测
+            predictions = []
+            for name, model in self.models.items():
+                pred = model.predict(X)
+                predictions.append(pred)
+
+            # 计算平均预测值
+            if len(predictions) > 0:
+                # 对每个模型的预测结果进行平均
+                avg_predictions = np.mean(predictions, axis=0)
+            else:
+                avg_predictions = np.array([])
+
+            # 处理最终预测结果
+            if len(avg_predictions) == 1:
+                prediction = max(0.1, avg_predictions[0])
+            else:
+                prediction = np.maximum(0.1, avg_predictions)
+        else:
+            # 单个模型预测
+            if self.model is None:
+                raise ValueError("模型尚未训练")
+
+            pred_result = self.model.predict(X)
+
+            # 根据输出形状处理
+            if pred_result.ndim == 0 or len(pred_result) == 1:
+                prediction = max(0.1, pred_result if pred_result.ndim == 0 else pred_result[0])
+            else:
+                prediction = np.maximum(0.1, pred_result)
+
+        print(f"预测结果形状: {prediction.shape if hasattr(prediction, 'shape') else 'scalar'}")
+        return prediction
     def predict_demand(self, features: Dict,
                        discount_rate: float,
                        time_to_close: float,
@@ -287,11 +334,13 @@ class EnhancedDemandPredictor:
                 features, discount_rate, time_to_close, current_stock,
                 product_info, weather_features, calendar_features
             )
-
+        # self.product_cache
+        total_stock = current_stock + self.config['today_saled_stock']
         # 准备特征向量
         feature_vector = self._create_complete_feature_vector(
             features, discount_rate, time_to_close, current_stock,
-            product_info, weather_features, calendar_features
+            product_info, weather_features, calendar_features,
+            total_stock=total_stock
         )
 
         # 转换为DataFrame
@@ -303,7 +352,7 @@ class EnhancedDemandPredictor:
             for col in missing_cols:
                 feature_df[col] = 0
             feature_df = feature_df[self.feature_columns]
-
+        print("预测销量的特征信息：", feature_df)
         # 预测
         if self.model_type == 'ensemble':
             predictions = []
@@ -315,8 +364,9 @@ class EnhancedDemandPredictor:
             prediction = self.model.predict(feature_df)[0]
 
         # 应用约束：不能超过当前库存，不能为负
-        prediction = max(0.1, min(prediction, current_stock * 0.8))
-
+        # prediction = max(0.1, min(prediction, current_stock * 0.8))
+        prediction = max(0.1, prediction)
+        print("预测销量：", prediction)
         return prediction
 
     def _advanced_heuristic_prediction(self, features: Dict,
@@ -416,9 +466,10 @@ class EnhancedDemandPredictor:
                                         current_stock: int,
                                         product_info: Optional[ProductInfo],
                                         weather_features: Optional[Dict],
-                                        calendar_features: Optional[Dict]) -> Dict:
+                                        calendar_features: Optional[Dict],
+                                        total_stock: int = 100) -> Dict:
         """创建完整的特征向量"""
-
+        # 推测折扣销量用
         # 基础特征
         feature_vector = features.copy()
 
@@ -427,7 +478,7 @@ class EnhancedDemandPredictor:
             'discount_rate': discount_rate,
             'time_to_close': time_to_close,
             'current_stock': current_stock,
-            'stock_ratio': current_stock / max(features.get('hist_avg_sales', 100), 1),
+            'stock_ratio': current_stock / total_stock,# max(features.get('hist_avg_sales', 100), 1),
             'price_elasticity_effect': (1.0 / discount_rate) ** features.get('price_elasticity', 1.2),
             'urgency_factor': 1.0 / (time_to_close + 0.1),  # 避免除零
             'is_high_discount': 1 if discount_rate < 0.7 else 0,

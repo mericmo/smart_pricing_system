@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-# import seaborn as sns
+import seaborn as sns
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -11,25 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import os
 import platform
-from matplotlib import rcParams
-# matplotlib.rcParams['font.sans-serif'] = ['SimHei']
-# rcParams['font.sans-serif'] = ['Microsoft YaHei']
-# rcParams['axes.unicode_minus'] = False
-plt.rcParams['font.size'] = 12  # 设置字体大小
-# 设置中文字体
-# plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
-# plt.rcParams['axes.unicode_minus'] = False
-# 导入字体配置
-# try:
-#     from core.font_config import setup_chinese_font
-#
-#     FONT_NAME = setup_chinese_font()
-# except ImportError:
-#     # 如果导入失败，直接设置
-#     matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
-#     matplotlib.rcParams['axes.unicode_minus'] = False
-#     FONT_NAME = 'DejaVu Sans'
-
+import matplotlib.dates as mdates
 
 @dataclass
 class ModelEvaluationResult:
@@ -57,9 +39,11 @@ class SimplifiedModelVisualizer:
         self.viz_output_dir = config.get('visualization_output_dir', 'output/viz') if config else 'output/viz'
         os.makedirs(self.viz_output_dir, exist_ok=True)
         # 设置seaborn样式
-        # sns.set_style("whitegrid")
-        # sns.set_palette("husl")
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
+        sns.set_style("whitegrid")
+        sns.set_palette("husl")
+        # 设置matplotlib样式
+        # plt.style.use('default')
+        plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei',  'DejaVu Sans', 'Arial Unicode MS', 'Arial']
         plt.rcParams['axes.unicode_minus'] = False
         # print(f"可视化器初始化完成，使用字体: {FONT_NAME}")
 
@@ -79,9 +63,9 @@ class SimplifiedModelVisualizer:
         try:
             r2 = r2_score(y_true, y_pred)
             if r2 < 0:
-                return f"R²值为负（{r2:.3f}），模型拟合效果差"
+                return f"R2值为负（{r2:.3f}），模型拟合效果差"
             elif r2 < 0.3:
-                return f"R²值较低（{r2:.3f}），模型解释力弱"
+                return f"R2值较低（{r2:.3f}），模型解释力弱"
         except:
             pass
 
@@ -105,7 +89,7 @@ class SimplifiedModelVisualizer:
         # 计算并显示R²
         try:
             r2 = r2_score(y_true, y_pred)
-            ax.text(0.05, 0.95, f'R² = {r2:.3f}', transform=ax.transAxes,
+            ax.text(0.05, 0.95, f'R2 = {r2:.3f}', transform=ax.transAxes,
                     fontsize=12, verticalalignment='top',
                     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
         except:
@@ -244,6 +228,7 @@ class SimplifiedModelVisualizer:
             traceback.print_exc()
             return ""
 
+    # 创建误差比较图
     def create_metrics_card(self, metrics: Dict[str, any],
                             product_code: str,
                             save_path: Optional[str] = None) -> str:
@@ -277,7 +262,7 @@ class SimplifiedModelVisualizer:
             fig, ax = plt.subplots(figsize=(10, 6))
 
             # 创建指标数据
-            metric_names = ['MAE', 'MSE', 'RMSE', 'R²', 'MAPE']
+            metric_names = ['MAE', 'MSE', 'RMSE', 'R2', 'MAPE']
             metric_values = [
                 float_metrics.get('mae', 0),
                 float_metrics.get('mse', 0),
@@ -297,7 +282,7 @@ class SimplifiedModelVisualizer:
             # 添加数值标签
             for bar, name, value in zip(bars, metric_names, metric_values):
                 height = bar.get_height()
-                if name == 'R²':
+                if name == 'R2':
                     # R²特殊格式
                     label = f'{value:.3f}'
                     if value < 0:
@@ -329,7 +314,7 @@ class SimplifiedModelVisualizer:
                 rating = "需改进 ✗"
                 rating_color = "red"
             else:
-                rating = "警告: R²为负!"
+                rating = "警告: R2为负!"
                 rating_color = "darkred"
 
             rating_text = f'模型评级: {rating}'
@@ -366,8 +351,6 @@ class SimplifiedModelVisualizer:
         创建综合评估报告
         """
         plot_paths = {}
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
-        plt.rcParams['axes.unicode_minus'] = False
         try:
             # 1. 预测对比图
             plot_paths['prediction_comparison'] = self.create_prediction_comparison_chart(
@@ -396,8 +379,6 @@ class SimplifiedModelVisualizer:
         """使用PIL生成定价策略可视化图表"""
 
         plot_paths = {}
-        # plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
-        # plt.rcParams['axes.unicode_minus'] = False
         try:
             # 1. 创建策略报告主图像
             img_width = 1200
@@ -407,7 +388,7 @@ class SimplifiedModelVisualizer:
             img = Image.new('RGB', (img_width, img_height), color='white')
             draw = ImageDraw.Draw(img)
 
-            def get_font_path(font_name):
+            def get_font_path():
                 system = platform.system()
 
                 # 优先尝试的字体列表（按优先级排序）
@@ -444,7 +425,7 @@ class SimplifiedModelVisualizer:
                 return None
 
             # 加载字体
-            font_path = get_font_path("simhei")
+            font_path = get_font_path()
 
             if font_path:
                 # 使用不同大小的字体
@@ -546,14 +527,14 @@ class SimplifiedModelVisualizer:
                 buf.seek(0)
                 chart_img = Image.open(buf)
 
-                chart_width = 500
-                chart_height = 300
+                chart_width = 600
+                chart_height = 350
                 chart_img = chart_img.resize((chart_width, chart_height), Image.Resampling.LANCZOS)
                 img.paste(chart_img, (img_width // 2 - chart_width // 2, chart_y))
                 buf.close()
 
             # 4. 绘制模型性能指标
-            metrics_y = chart_y + 350
+            metrics_y = chart_y + 400
             if training_history and training_history.performance_metrics:
                 metrics = training_history.performance_metrics
 
@@ -679,8 +660,6 @@ class SimplifiedModelVisualizer:
 
     def _create_price_trend_chart(self, pricing_schedule: List):
         """创建价格变化趋势图"""
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
-        plt.rcParams['axes.unicode_minus'] = False
         try:
             times = []
             prices = []
@@ -692,7 +671,8 @@ class SimplifiedModelVisualizer:
                 end_time = datetime.strptime(segment.end_time, "%H:%M")
                 mid_time = start_time + (end_time - start_time) / 2
 
-                times.append(mid_time.strftime("%H:%M"))
+                # times.append(mid_time.strftime("%H:%M"))
+                times.append(mid_time)
                 prices.append(segment.price)
                 discounts.append((1 - segment.discount) * 100)  # 转换为折扣百分比
 
@@ -700,21 +680,23 @@ class SimplifiedModelVisualizer:
 
             # 绘制价格折线图
             color1 = 'tab:blue'
-            ax1.set_xlabel('时间段', fontsize=24)
-            ax1.set_ylabel('价格 (元)', color=color1, fontsize=24)
-            ax1.plot(times, prices, 'o-', color=color1, linewidth=2, markersize=16)
+            ax1.set_xlabel('时间段', fontsize=18)
+            ax1.set_ylabel('价格 (元)', color=color1, fontsize=18)
+            ax1.plot(times, prices, 'o-', color=color1, linewidth=2, markersize=18)
             ax1.tick_params(axis='y', labelcolor=color1)
 
             # 创建第二个Y轴用于折扣
             ax2 = ax1.twinx()
             color2 = 'tab:red'
-            ax2.set_ylabel('折扣 (%)', color=color2, fontsize=24)
-            ax2.plot(times, discounts, 's--', color=color2, linewidth=2, markersize=12)
+            ax2.set_ylabel('折扣 (%)', color=color2, fontsize=18)
+            ax2.plot(times, discounts, 's--', color=color2, linewidth=2, markersize=18)
             ax2.tick_params(axis='y', labelcolor=color2)
 
-            ax1.set_title('价格与折扣变化趋势', fontsize=28, fontweight='bold')
+            ax1.set_title('价格与折扣变化趋势', fontsize=22, fontweight='bold')
             ax1.grid(True, alpha=0.3)
 
+            # 格式化x轴显示
+            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
             # 旋转X轴标签
             plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
 

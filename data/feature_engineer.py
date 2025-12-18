@@ -18,6 +18,7 @@ class PricingFeatureEngineer:
 
     def create_features(self, transaction_data: pd.DataFrame,
                         product_code: str,
+                        store_code: str,
                         promotion_hours: Tuple[int, int],
                         current_time: Any,
                         external_features: Optional[Dict] = None) -> Dict:
@@ -26,7 +27,8 @@ class PricingFeatureEngineer:
         # 确保current_time是pandas Timestamp
         if not isinstance(current_time, pd.Timestamp):
             current_time = pd.Timestamp(current_time)
-
+        # 数据预先处理
+        transaction_data = self._filter_store_products(transaction_data, store_code, product_code)
         # 基础时间特征
         features = self._create_base_features(current_time, promotion_hours)
 
@@ -60,10 +62,30 @@ class PricingFeatureEngineer:
 
         return features
 
+    def _filter_store_products(self, transaction_data: pd.DataFrame, store_code: str,
+                               product_code: str) -> pd.DataFrame:
+        # 注释掉的数据预处理代码
+        transaction_data = transaction_data[
+            (transaction_data['门店编码'] == store_code) & (transaction_data['商品编码'] == product_code) & (
+                        transaction_data['销售数量'] > 0) & (transaction_data["销售金额"] > 0)]
+        if "销售净额" in transaction_data.columns and "销售金额" in transaction_data.columns:
+            transaction_data['平均售价'] = transaction_data['销售净额'] / transaction_data['销售净额'] * \
+                                           transaction_data['销售数量']
+            # 确保销售数量为数值（若有非数字或空值会变为 NaN）
+            transaction_data["销售数量"] = pd.to_numeric(transaction_data["销售数量"], errors="coerce")
+            # 确保金额列为数值
+            transaction_data['销售净额'] = pd.to_numeric(transaction_data['销售净额'], errors="coerce")
+            transaction_data["平均售价"] = np.where(
+                transaction_data["销售数量"] > 0,
+                transaction_data['销售净额'] / transaction_data["销售数量"],
+                np.nan
+            )
+        return transaction_data
+
     def _create_base_features(self, current_time: pd.Timestamp,
                               promotion_hours: Tuple[int, int]) -> Dict:
         """创建基础时间特征"""
-
+        current_year = current_time.year
         current_hour = current_time.hour
         current_minute = current_time.minute
         day_of_week = current_time.dayofweek
@@ -94,6 +116,7 @@ class PricingFeatureEngineer:
         is_month_start = 1 if day_of_month <= 5 else 0
 
         return {
+            "year": current_year,
             'hour_of_day': current_hour,
             'minute_of_hour': current_minute,
             'day_of_week': day_of_week,
@@ -131,17 +154,23 @@ class PricingFeatureEngineer:
         """提取历史销售特征"""
 
         # 筛选商品数据
-        product_data = transaction_data[transaction_data['商品编码'] == product_code].copy()
-
+        # product_data = transaction_data[transaction_data['商品编码'] == product_code].copy()
+        product_data = transaction_data.copy()
+        # 可用于计算当日已售库存
+        today_saled_stock = 0
+        if product_code:
+            today_saled_stock = product_data[
+                (product_data['日期'] == current_time.date())]['销售数量'].sum()
         if product_data.empty:
-            return self._get_default_historical_features()
-
+            # return self._get_default_historical_features()
+            raise ValueError("数据缺失。")
         # 确保时间列是pandas Timestamp
         if '交易时间' in product_data.columns:
             if not pd.api.types.is_datetime64_any_dtype(product_data['交易时间']):
                 product_data['交易时间'] = pd.to_datetime(product_data['交易时间'])
         else:
-            return self._get_default_historical_features()
+            # return self._get_default_historical_features()
+            raise ValueError("数据缺失交易时间字段。")
 
         # 计算历史平均销量（最近30天）
         recent_days = 30
@@ -208,6 +237,7 @@ class PricingFeatureEngineer:
         recent_3h_sales = recent_3h_data['销售数量'].sum() if not recent_3h_data.empty else 0.0
 
         return {
+            'today_saled_stock': float(today_saled_stock),
             'hist_avg_sales': float(hist_avg_sales),
             'hist_sales_std': float(hist_sales_std),
             'hist_promo_sales_ratio': float(hist_promo_sales_ratio),

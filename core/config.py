@@ -108,18 +108,18 @@ class ConfigManager:
     def __init__(self, config_path: str = None):
         self.config_path = config_path or self._get_default_config_path()
         self.config = self._load_config()
-        self._setup_logging()
+        # self._setup_logging()
         
         # 初始化各配置类
-        self.data_config = DataConfig(**self.config.get('data', {}))
-        self.feature_config = FeatureConfig(**self.config.get('features', {}))
-        self.prediction_config = PredictionConfig(**self.config.get('prediction', {}))
-        self.optimization_config = OptimizationConfig(**self.config.get('optimization', {}))
-        self.rl_config = RLConfig(**self.config.get('rl', {}))
-        self.real_time_config = RealTimeConfig(**self.config.get('real_time', {}))
+        # self.data_config = DataConfig(**self.config.get('data', {}))
+        # self.feature_config = FeatureConfig(**self.config.get('features', {}))
+        # self.prediction_config = PredictionConfig(**self.config.get('prediction', {}))
+        # self.optimization_config = OptimizationConfig(**self.config.get('optimization', {}))
+        # self.rl_config = RLConfig(**self.config.get('rl', {}))
+        # self.real_time_config = RealTimeConfig(**self.config.get('real_time', {}))
         
         # 加载商品品类配置
-        self.product_categories = self._load_product_categories()
+        # self.product_categories = self._load_product_categories()
         
     def _get_default_config_path(self) -> str:
         """获取默认配置文件路径"""

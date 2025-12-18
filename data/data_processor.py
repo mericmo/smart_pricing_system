@@ -6,7 +6,29 @@ from typing import Dict, List, Optional, Tuple, Any
 import warnings
 warnings.filterwarnings('ignore')
 import os
+'''
+时间特征：hour, minute, day_of_week, month, day_of_month, is_weekend, quarter
 
+促销时间特征：in_promotion, time_to_promo_end, promo_duration_hours
+
+周期特征：hour_sin, hour_cos, day_sin, day_cos
+
+时段特征：is_morning_rush, is_lunch_time, is_evening_rush, is_night
+
+价格特征：price, discount_rate, has_discount, price_ratio
+
+历史销售特征：hist_avg_sales, hist_sales_std, hist_promo_sales_ratio, sales_trend, last_week_sales, recent_3h_sales
+
+价格统计特征：avg_price, price_std, min_price, max_price, median_price
+
+折扣特征：avg_discount, discount_std, min_discount, max_discount, price_elasticity, discount_frequency
+
+天气特征：temperature, temp_low, temp_range, weather_severity, 天气类型
+
+日历特征：is_holiday, holiday_impact, is_shopping_day, is_payday, day_of_year, week_of_year
+
+商品特征：main_category, sub_category, product_weight, name_length
+'''
 class TransactionDataProcessor:
     """交易数据处理器 - 针对您的数据格式优化"""
     
@@ -50,7 +72,10 @@ class TransactionDataProcessor:
     
     def _preprocess_transaction_data(self):
         """预处理交易数据"""
-        # 1. 处理时间字段
+        # 1. 去除异常数据
+        self.transaction_data = self.transaction_data[(self.transaction_data["销售金额"] > 0) & (self.transaction_data["销售数量"] > 0)]
+
+        # 2. 处理时间字段
         if '交易时间' in self.transaction_data.columns:
             # 统一时间格式
             self.transaction_data['交易时间'] = pd.to_datetime(
@@ -66,7 +91,7 @@ class TransactionDataProcessor:
                 format='%Y/%m/%d %H:%M'
             )
         
-        # 2. 处理折扣类型
+        # 3. 处理折扣类型
         if '折扣类型' in self.transaction_data.columns:
             # 解析折扣类型
             self.transaction_data['是否折扣'] = self.transaction_data['折扣类型'].apply(
@@ -78,7 +103,7 @@ class TransactionDataProcessor:
                 self._extract_discount_rate, axis=1
             )
         
-        # 3. 计算实际折扣率
+        # 4. 计算实际折扣率
         if all(col in self.transaction_data.columns for col in ['销售金额', '售价', '销售数量']):
             self.transaction_data['实际折扣率'] = self.transaction_data.apply(
                 # lambda row: row['销售金额'] / (row['售价'] * row['销售数量'])
@@ -86,11 +111,23 @@ class TransactionDataProcessor:
                 if row['售价'] * row['销售数量'] > 0 else 1.0,
                 axis=1
             )
-        
-        # 4. 提取时间特征
+        # 5. 计算均价
+        if "销售净额" in self.transaction_data.columns and "销售金额" in self.transaction_data.columns:
+            self.transaction_data['平均售价'] = self.transaction_data['销售净额'] / self.transaction_data['销售净额'] * \
+                                           self.transaction_data['销售数量']
+            # 确保销售数量为数值（若有非数字或空值会变为 NaN）
+            self.transaction_data["销售数量"] = pd.to_numeric(self.transaction_data["销售数量"], errors="coerce")
+            # 确保金额列为数值
+            self.transaction_data['销售净额'] = pd.to_numeric(self.transaction_data['销售净额'], errors="coerce")
+            self.transaction_data["平均售价"] = np.where(
+                self.transaction_data["销售数量"] > 0,
+                self.transaction_data['销售净额'] / self.transaction_data["销售数量"],
+                np.nan
+            )
+        # 6. 提取时间特征
         self._extract_transaction_time_features()
         
-        # 5. 处理商品信息
+        # 7. 处理商品信息
         self._process_product_info()
     
     def _extract_discount_rate(self, row):

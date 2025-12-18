@@ -7,7 +7,7 @@ import uvicorn
 import pandas as pd
 import os
 import sys
-
+from core.config import *
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -94,13 +94,15 @@ async def startup_event():
             transaction_data = pd.DataFrame()
             weather_data = pd.DataFrame()
             calendar_data = pd.DataFrame()
-        
+        config_manager = ConfigManager()
+        config = config_manager.config
+        config['product_code'] = "8006144"
         # 初始化策略生成器
         strategy_generator = EnhancedPricingStrategyGenerator(
             transaction_data=transaction_data,
             weather_data=weather_data,
             calendar_data=calendar_data,
-            config=None
+            config=config
         )
         
         strategies_db = {}
@@ -220,6 +222,7 @@ async def generate_pricing_strategy(request: PricingRequest):
             min_discount=request.min_discount,
             max_discount=request.max_discount,
             time_segments=request.time_segments,
+            current_time=pd.to_datetime('2025-10-31 10:21:25'),
             store_code=request.store_code,
             use_weather=request.use_weather,
             use_calendar=request.use_calendar

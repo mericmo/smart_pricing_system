@@ -1,0 +1,98 @@
+// 智能定价系统调用关系图
+digraph {
+	rankdir=TB size="12,16"
+	node [shape=box style="rounded,filled"]
+	main [label="main()
+[main.py]" fillcolor="#e1f5ff"]
+	load_data [label="load_data_files()
+[main.py]" fillcolor="#e1f5ff"]
+	create_sample [label="create_sample_data()
+[main.py]" fillcolor="#e1f5ff"]
+	config_mgr [label="ConfigManager()
+[core.config]" fillcolor="#f5f5e1"]
+	generator_init [label="EnhancedPricingStrategyGenerator.__init__()
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	data_proc [label="TransactionDataProcessor
+[data.data_processor]" fillcolor="#ffe1f5"]
+	feature_eng [label="PricingFeatureEngineer
+[data.feature_engineer]" fillcolor="#e1ffe1"]
+	demand_pred [label="EnhancedDemandPredictor
+[models.demand_predictor]" fillcolor="#f5e1ff"]
+	visualizer [label="SimplifiedModelVisualizer
+[core.model_evaluator]" fillcolor="#e1e1ff"]
+	generate_strategy [label="generate_pricing_strategy()
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	get_product_info [label="_get_product_info()
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	filter_product [label="filter_by_product()
+[data.data_processor]" fillcolor="#ffe1f5"]
+	get_summary [label="get_product_summary()
+[data.data_processor]" fillcolor="#ffe1f5"]
+	prepare_features [label="_prepare_features()
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	create_features [label="create_features()
+[data.feature_engineer]" fillcolor="#e1ffe1"]
+	train_predictor [label="_train_demand_predictor()
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	prepare_training [label="prepare_training_data_from_transactions()
+[models.demand_predictor]" fillcolor="#f5e1ff"]
+	train_model [label="train()
+[models.demand_predictor]" fillcolor="#f5e1ff"]
+	predict_train [label="predict_train_set()
+[models.demand_predictor]" fillcolor="#f5e1ff"]
+	calc_metrics [label="_calculate_performance_metrics()
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	create_report [label="create_comprehensive_report()
+[core.model_evaluator]" fillcolor="#e1e1ff"]
+	optimizer [label="PricingOptimizer
+[models.pricing_optimizer]" fillcolor="#ffe1e1"]
+	optimize_pricing [label="optimize_staged_pricing()
+[models.pricing_optimizer]" fillcolor="#ffe1e1"]
+	dp_optimization [label="_dynamic_programming_optimization()
+[models.pricing_optimizer]" fillcolor="#ffe1e1"]
+	predict_demand [label="predict_demand()
+[models.demand_predictor]" fillcolor="#f5e1ff"]
+	evaluate_schedule [label="evaluate_pricing_schedule()
+[models.pricing_optimizer]" fillcolor="#ffe1e1"]
+	calc_confidence [label="_calculate_confidence_score()
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	generate_viz [label="_generate_strategy_visualizations_with_pil()
+[core.model_evaluator]" fillcolor="#e1e1ff"]
+	strategy_obj [label="EnhancedPricingStrategy
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	save_strategy [label="save_strategy()
+[core.pricing_strategy_generator]" fillcolor="#fff4e1"]
+	main -> load_data [label="文件存在"]
+	main -> create_sample [label="文件不存在"]
+	main -> config_mgr
+	main -> generator_init
+	generator_init -> data_proc [label="创建"]
+	generator_init -> feature_eng [label="创建"]
+	generator_init -> demand_pred [label="创建"]
+	generator_init -> visualizer [label="创建"]
+	main -> generate_strategy
+	generate_strategy -> get_product_info
+	get_product_info -> filter_product
+	get_product_info -> get_summary
+	generate_strategy -> prepare_features
+	prepare_features -> create_features
+	prepare_features -> get_summary
+	generate_strategy -> train_predictor
+	train_predictor -> prepare_training
+	train_predictor -> train_model
+	train_predictor -> predict_train
+	train_predictor -> calc_metrics
+	train_predictor -> create_report
+	prepare_training -> filter_product
+	prepare_training -> get_summary
+	generate_strategy -> optimizer [label="创建"]
+	generate_strategy -> optimize_pricing
+	optimize_pricing -> dp_optimization
+	dp_optimization -> predict_demand
+	generate_strategy -> evaluate_schedule
+	generate_strategy -> calc_confidence
+	generate_strategy -> generate_viz
+	generate_strategy -> strategy_obj [label="创建"]
+	main -> save_strategy
+	save_strategy -> strategy_obj
+}

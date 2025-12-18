@@ -10,7 +10,7 @@ from models.demand_predictor import EnhancedDemandPredictor as DemandPredictor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.pricing_strategy_generator import EnhancedPricingStrategyGenerator
-
+from core.config import *
 def load_data_files(transaction_file: str, 
                    weather_file: str = None,
                    calendar_file: str = None) -> tuple:
@@ -21,18 +21,6 @@ def load_data_files(transaction_file: str,
     # 1. 加载交易数据
     try:
         transaction_data = pd.read_csv(transaction_file, encoding='utf-8', parse_dates=["日期", "交易时间"], dtype={"商品编码":str,"门店编码":str})
-        if "销售净额" in transaction_data.columns and "销售金额" in transaction_data.columns:
-            transaction_data['平均售价'] = transaction_data['销售净额'] / transaction_data['销售净额'] * transaction_data['销售数量']
-            # 确保销售数量为数值（若有非数字或空值会变为 NaN）
-            transaction_data["销售数量"] = pd.to_numeric(transaction_data["销售数量"], errors="coerce")
-            # 确保金额列为数值
-            transaction_data['销售净额'] = pd.to_numeric(transaction_data['销售净额'], errors="coerce")
-            transaction_data["平均售价"] = np.where(
-                transaction_data["销售数量"] > 0,
-                transaction_data['销售净额'] / transaction_data["销售数量"],
-                np.nan
-            )
-
         print(f"交易数据加载成功: {len(transaction_data)} 条记录")
     except Exception as e:
         print(f"加载交易数据失败: {e}")
@@ -208,13 +196,17 @@ def main():
     # 2. 初始化系统
     print("\n2. 系统初始化")
     print("-" * 40)
-    
+    # 获取用户输入
+    product_code = "8006144"  # input("\n请输入商品编码: ").strip()
     try:
+        config_manager = ConfigManager()
+        config = config_manager.config
+        config['product_code'] = product_code
         strategy_generator = EnhancedPricingStrategyGenerator(
             transaction_data=transaction_data,
             weather_data=weather_data,
             calendar_data=calendar_data,
-            config=None  # 可以使用配置管理器
+            config=config  # 可以使用配置管理器
         )
         print("系统初始化成功")
     except Exception as e:
@@ -235,8 +227,7 @@ def main():
         avg_price = transaction_data[transaction_data['商品编码'] == code]['售价'].mean()
         print(f"  {code}: {name} (平均价格: ¥{avg_price:.2f})")
     
-    # 获取用户输入
-    product_code = "8006144" #input("\n请输入商品编码: ").strip()
+
     
     # 验证商品编码
     if product_code not in transaction_data['商品编码'].values:
@@ -258,7 +249,7 @@ def main():
     # 折扣范围
     print("\n折扣范围:")
     min_discount = 0.4 # float(input("最低折扣 (如0.4表示4折): ") or "0.4")
-    max_discount = 0.8#float(input("最高折扣 (如0.9表示9折): ") or "0.9")
+    max_discount = 0.8 # float(input("最高折扣 (如0.9表示9折): ") or "0.9")
     
     # 时间段
     time_segments = 2 # int(input("\n时间段数量 (默认4): ") or "4")
@@ -284,6 +275,7 @@ def main():
             max_discount=max_discount,
             time_segments=time_segments,
             store_code=store_code,
+            current_time=pd.to_datetime('2025-10-31 10:21:25'),
             use_weather=use_weather,
             use_calendar=use_calendar,
             generate_visualizations=True

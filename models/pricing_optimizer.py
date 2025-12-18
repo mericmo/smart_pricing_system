@@ -198,8 +198,8 @@ class PricingOptimizer:
                                  features: Dict) -> float:
         """评估折扣的预期利润 - 修复方法调用"""
         
-        start_hour, end_hour = promotion_hours
-        total_hours = (end_hour - start_hour) % 24
+        # start_hour, end_hour = promotion_hours
+        # total_hours = (end_hour - start_hour) % 24
         
         # 预测总销量
         predicted_sales = 0
@@ -231,7 +231,7 @@ class PricingOptimizer:
         
         # 添加库存剩余惩罚
         if remaining_stock > 0:
-            profit -= remaining_stock * self.cost_price * 0.5  # 未售出损失成本的一半
+            profit -= remaining_stock * self.cost_price * 0.3  # 未售出损失成本的30%
         
         return profit
 
@@ -315,47 +315,3 @@ class PricingOptimizer:
                 high = mid
 
         return best_discount
-
-    def _evaluate_discount_profit(self, discount: float,
-                                  initial_stock: int,
-                                  promotion_hours: Tuple[int, int],
-                                  features: Dict) -> float:
-        """评估折扣的预期利润"""
-
-        start_hour, end_hour = promotion_hours
-        total_hours = (end_hour - start_hour) % 24
-
-        # 预测总销量
-        predicted_sales = 0
-        remaining_stock = initial_stock
-
-        # 将促销时间分为若干小段进行预测
-        num_subsegments = 8
-        for i in range(num_subsegments):
-            time_elapsed = i / num_subsegments
-            time_remaining = 1.0 - time_elapsed
-
-            segment_sales = self.demand_predictor.predict_demand(
-                features=features,
-                discount_rate=discount,
-                time_to_close=time_remaining,
-                current_stock=remaining_stock,
-                base_demand=features.get('hist_avg_sales', 10) if features else 10
-            )
-
-            actual_sales = min(int(segment_sales / num_subsegments), remaining_stock)
-            predicted_sales += actual_sales
-            remaining_stock -= actual_sales
-
-            if remaining_stock <= 0:
-                break
-
-        # 计算利润
-        price = self.original_price * discount
-        profit = (price - self.cost_price) * predicted_sales
-
-        # 添加库存剩余惩罚
-        if remaining_stock > 0:
-            profit -= remaining_stock * self.cost_price * 0.5  # 未售出损失成本的一半
-
-        return profit
