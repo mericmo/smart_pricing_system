@@ -1,0 +1,25 @@
+smart-pricing-system/
+├── data/
+│   ├── __init__.py
+│   ├── data_processor.py      # 数据预处理模块
+│   ├── feature_engineer.py    # 特征工程
+│   └── historical_transactions.csv  # 交易数据
+├── models/
+│   ├── __init__.py
+│   ├── demand_predictor.py    # 需求预测模型
+│   ├── pricing_optimizer.py   # 定价优化器
+│   └── rl_pricing_agent.py    # 强化学习定价智能体
+├── core/
+│   ├── __init__.py
+│   ├── pricing_strategy_generator.py  # 阶梯定价生成器
+│   ├── real_time_adjuster.py  # 实时调整器
+│   └── config.py
+├── utils/
+│   ├── __init__.py
+│   ├── data_utils.py
+│   └── time_utils.py
+├── api/
+│   └── pricing_api.py
+├── tests/
+├── requirements.txt
+└── main.py
