@@ -8,7 +8,7 @@ import os
 from models.demand_predictor import EnhancedDemandPredictor as DemandPredictor
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+from utils.calender_helper import create_china_holidays_from_date_list
 from core.pricing_strategy_generator import EnhancedPricingStrategyGenerator
 from core.config import *
 def load_data_files(transaction_file: str, 
@@ -20,29 +20,32 @@ def load_data_files(transaction_file: str,
     
     # 1. 加载交易数据
     try:
-        transaction_data = pd.read_csv(transaction_file, encoding='utf-8', parse_dates=["日期", "交易时间"], dtype={"商品编码":str,"门店编码":str})
+        transaction_data = pd.read_csv(transaction_file, encoding='utf-8', parse_dates=['日期', "交易时间"], dtype={"商品编码": str, "门店编码": str})
         print(f"交易数据加载成功: {len(transaction_data)} 条记录")
     except Exception as e:
         print(f"加载交易数据失败: {e}")
         return None, None, None
     
     # 2. 加载天气数据（可选）
+
     weather_data = None
     if weather_file and os.path.exists(weather_file):
         try:
-            weather_data = pd.read_csv(weather_file, encoding='utf-8')
+            weather_data = pd.read_csv(weather_file, encoding='utf-8', parse_dates=['date'])
             print(f"天气数据加载成功: {len(weather_data)} 条记录")
         except Exception as e:
             print(f"加载天气数据失败: {e}")
     
     # 3. 加载日历数据（可选）
     calendar_data = None
-    if calendar_file and os.path.exists(calendar_file):
-        try:
-            calendar_data = pd.read_csv(calendar_file, encoding='utf-8')
-            print(f"日历数据加载成功: {len(calendar_data)} 条记录")
-        except Exception as e:
-            print(f"加载日历数据失败: {e}")
+    date_series = transaction_data['日期'].unique()
+    calendar_data = create_china_holidays_from_date_list(date_series=date_series)
+    # if calendar_file and os.path.exists(calendar_file):
+    #     try:
+    #         calendar_data = pd.read_csv(calendar_file, encoding='utf-8')
+    #         print(f"日历数据加载成功: {len(calendar_data)} 条记录")
+    #     except Exception as e:
+    #         print(f"加载日历数据失败: {e}")
     
     return transaction_data, weather_data, calendar_data
 
@@ -179,7 +182,7 @@ def main():
     # 尝试加载实际数据文件
     transaction_file = "data/historical_transactions.csv"
     weather_file = "data/weather_info.csv"
-    calendar_file = "data/calendar_info.csv"
+    calendar_file = "data/calender_info.csv"
     
     if os.path.exists(transaction_file):
         transaction_data, weather_data, calendar_data = load_data_files(
@@ -258,8 +261,8 @@ def main():
     store_code = "205625" #input("门店编码 (可选，直接回车跳过): ").strip() or None
     
     # 是否使用外部数据
-    use_weather ='y' # input("\n是否使用天气数据? (y/n, 默认y): ").strip().lower() in ['y', '']
-    use_calendar ='y' # input("是否使用日历数据? (y/n, 默认y): ").strip().lower() in ['y', '']
+    use_weather = True # input("\n是否使用天气数据? (y/n, 默认y): ").strip().lower() in ['y', '']
+    use_calendar = True # input("是否使用日历数据? (y/n, 默认y): ").strip().lower() in ['y', '']
     
     # 4. 生成策略
     print(f"\n4. 正在生成定价策略...")

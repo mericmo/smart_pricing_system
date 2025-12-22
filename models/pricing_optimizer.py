@@ -113,7 +113,7 @@ class PricingOptimizer:
                     )  # 移除了base_demand参数
                     
                     # 实际销售量不能超过库存
-                    actual_sales = min(int(predicted_sales), s)
+                    actual_sales = min(round(predicted_sales), s)
                     
                     # 计算利润
                     price = self.original_price * discount

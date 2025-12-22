@@ -27,7 +27,7 @@ class ModelEvaluationResult:
 class SimplifiedModelVisualizer:
     """简化模型可视化器"""
 
-    def __init__(self, output_dir: str = "output/viz", config = None):
+    def __init__(self, output_dir: str = "output", config = None):
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
@@ -36,7 +36,7 @@ class SimplifiedModelVisualizer:
         # plt.rcParams['savefig.dpi'] = 150
         # plt.rcParams['figure.figsize'] = (10, 8)
         # 可视化配置
-        self.viz_output_dir = config.get('visualization_output_dir', 'output/viz') if config else 'output/viz'
+        self.viz_output_dir = config.get('visualization_output_dir', output_dir+"./viz") if config else 'output/viz'
         os.makedirs(self.viz_output_dir, exist_ok=True)
         # 设置seaborn样式
         sns.set_style("whitegrid")

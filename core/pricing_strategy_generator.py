@@ -209,9 +209,9 @@ class EnhancedPricingStrategyGenerator:
         #     )
 
         # 存储输入数据
-        self._transaction_data = transaction_data # 原始数据
-        self.weather_data = weather_data
-        self.calendar_data = calendar_data
+        # self._transaction_data = transaction_data # 原始数据
+        # self.weather_data = weather_data
+        # self.calendar_data = calendar_data
         self.config = config
 
         # 初始化核心组件
@@ -220,6 +220,8 @@ class EnhancedPricingStrategyGenerator:
             transaction_data, weather_data, calendar_data
         )
         self.transaction_data = self.data_processor.transaction_data
+        self.calendar_data = self.data_processor.calendar_data
+        self.weather_data = self.data_processor.weather_data
         # 特征工程器：负责特征创建和转换
         self.feature_engineer = PricingFeatureEngineer(config)
         # 需求预测器：使用XGBoost模型进行需求预测
@@ -664,12 +666,13 @@ class EnhancedPricingStrategyGenerator:
             }
         else:
             # 从数据中提取信息
-            first_row = product_data.iloc[0]
-
+            # first_row = product_data.iloc[0]
+            first_row = product_data.iloc[-1]
+            summary_info = self.data_processor.get_product_summary(product_code, store_code)
             product_info = {
                 'product_code': product_code,
                 'product_name': first_row.get('商品名称', '未知商品'),
-                'original_price': float(first_row.get('售价', 100.0)),  # 从售价字段获取原价
+                'original_price': float(first_row.get('售价', 0)),  # 从售价字段获取原价
                 # 成本价通过估算方法获得（基于折扣数据或类别）
                 'cost_price': self._estimate_cost_price(product_data),
                 'category': first_row.get('小类编码', 'unknown') if '小类编码' in first_row else 'unknown',
@@ -680,9 +683,9 @@ class EnhancedPricingStrategyGenerator:
                 # 估算保质期（小时，基于商品类型）
                 'shelf_life_hours': self._estimate_shelf_life(first_row),
                 # 从数据汇总中获取价格弹性和促销敏感度
-                'price_elasticity': self.data_processor.get_product_summary(product_code, store_code).get('价格弹性',
+                'price_elasticity': summary_info.get('价格弹性',
                                                                                                           1.2),
-                'promotion_sensitivity': self.data_processor.get_product_summary(product_code, store_code).get(
+                'promotion_sensitivity': summary_info.get(
                     '促销敏感度', 1.2)
             }
 
@@ -718,7 +721,7 @@ class EnhancedPricingStrategyGenerator:
             # 防止异常值（成本应在合理范围内）
             return float(np.clip(estimated_cost,
                                  avg_discounted_price * 0.1,  # 最低成本（不低于售价的10%）
-                                 avg_discounted_price * 0.8))  # 最高成本（不高于售价的80%）
+                                 avg_discounted_price * 0.9))  # 最高成本（不高于售价的90%）
 
         # 方法2: 基于类别估算（不同类别有不同的成本率）
         if '小类编码' in product_data.columns:
@@ -732,7 +735,7 @@ class EnhancedPricingStrategyGenerator:
             prefix = category[:2] if isinstance(category, str) else '00'  # 取类别编码前两位
             default_rate = category_cost_rates.get(prefix, 0.25)  # 默认成本率25%
 
-            avg_price = product_data['售价'].mean() if '售价' in product_data.columns else 100.0
+            avg_price = product_data['售价'].mean() if '售价' in product_data.columns else 0.0
             return avg_price * default_rate
 
         # 默认情况（无法估算时返回0.0）
@@ -857,9 +860,13 @@ class EnhancedPricingStrategyGenerator:
         Returns:
             Dict: 特征字典，键为特征名，值为特征值
         """
+        calendar_data = self.calendar_data if use_calendar else None
+        weather_data = self.weather_data if use_weather else None
         # 使用特征工程模块创建基础特征（历史销量、价格趋势等）
         features = self.feature_engineer.create_features(
             transaction_data=self.transaction_data,
+            calendar_data=calendar_data,
+            weather_data=weather_data,
             product_code=product_code,
             store_code=store_code,
             promotion_hours=promotion_hours,
@@ -870,7 +877,7 @@ class EnhancedPricingStrategyGenerator:
         product_summary = self.data_processor.get_product_summary(product_code, store_code)
         features.update(product_summary)
 
-        # 添加门店特定特征（如果有门店编码）
+        # 添加门店特定特征
         if store_code:
             store_features = self._extract_store_features(store_code, product_code)
             features.update(store_features)

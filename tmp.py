@@ -61,38 +61,39 @@ def create_china_holidays_from_date_list(
         weekends.append(is_weekend)
 
         # 使用chinese_calendar获取节假日信息
-        is_workday, holiday_name = cal.get_holiday_detail(current_date)
-        is_holiday = not is_workday
+        try:
+            is_workday, holiday_name = cal.get_holiday_detail(current_date)
+        except Exception:
+            # 如果获取不到节假日详情，设为默认值
+            is_workday = True
+            holiday_name = None
 
         # 工作日判断
         workdays.append(is_workday)
 
-        # 法定节假日和假期标记
-        if holiday_name is not None:
-            holiday_legals.append(True)
-            holiday_recesses.append(True)
-            holiday_names.append(holiday_name.name if hasattr(holiday_name, 'name') else str(holiday_name))
+        # 检查是否是法定节假日
+        is_legal_holiday = int(cal.is_holiday(current_date))
+        is_legal_workday = int(cal.is_workday(current_date))
+
+        # 法定节假日标记
+        if is_legal_holiday:
+            holiday_legals.append(1)
         else:
-            # 检查是否是法定调休工作日
-            is_legal_holiday = cal.is_holiday(current_date)
-            is_legal_workday = cal.is_workday(current_date)
+            holiday_legals.append(0)
 
-            if is_legal_holiday:
-                holiday_legals.append(True)
-                holiday_recesses.append(True)
-                holiday_names.append('Public Holiday')
-            elif include_weekends_in_holidays and is_weekend:
-                holiday_legals.append(False)
-                holiday_recesses.append(True)
-                holiday_names.append('Weekend')
-            else:
-                holiday_legals.append(False)
-                holiday_recesses.append(False)
-                holiday_names.append(None)
-
-            if is_legal_workday and not is_workday:
-                # 调休工作日
-                workdays.append(True)
+        # 假期标记
+        if holiday_name is not None:
+            holiday_recesses.append(1)
+            holiday_names.append(holiday_name.name if hasattr(holiday_name, 'name') else str(holiday_name))
+        elif is_legal_holiday:
+            holiday_recesses.append(1)
+            holiday_names.append('Public Holiday')
+        elif include_weekends_in_holidays and is_weekend:
+            holiday_recesses.append(1)
+            holiday_names.append('Weekend')
+        else:
+            holiday_recesses.append(0)
+            holiday_names.append(None)
 
     df = pd.DataFrame({
         'date': dates,
@@ -103,6 +104,7 @@ def create_china_holidays_from_date_list(
         'week': weeks,
         'weekend': weekends,
         'workday': workdays,
+        "is_legal_workday": is_legal_workday,
         'holiday_legal': holiday_legals,
         'holiday_recess': holiday_recesses,
         'holiday_name': holiday_names
@@ -116,6 +118,7 @@ if __name__ == "__main__":
     # 创建一个小范围的测试数据
     test_dates = pd.date_range(start='2024-09-28', end='2024-10-10', freq='D')
     result_df = create_china_holidays_from_date_list(test_dates)
+    print(result_df.describe())
     print(result_df)
 
 

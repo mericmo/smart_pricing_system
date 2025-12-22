@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
+
 import warnings
 warnings.filterwarnings('ignore')
 import os
@@ -113,8 +114,8 @@ class TransactionDataProcessor:
             )
         # 5. 计算均价
         if "销售净额" in self.transaction_data.columns and "销售金额" in self.transaction_data.columns:
-            self.transaction_data['平均售价'] = self.transaction_data['销售净额'] / self.transaction_data['销售净额'] * \
-                                           self.transaction_data['销售数量']
+            # self.transaction_data['平均售价'] = self.transaction_data['销售净额'] / self.transaction_data['销售净额'] * \
+            #                                self.transaction_data['销售数量']
             # 确保销售数量为数值（若有非数字或空值会变为 NaN）
             self.transaction_data["销售数量"] = pd.to_numeric(self.transaction_data["销售数量"], errors="coerce")
             # 确保金额列为数值
@@ -295,7 +296,6 @@ class TransactionDataProcessor:
         """预处理日历数据"""
         if self.calendar_data is None:
             return
-        
         # 统一日期格式
         if 'date' in self.calendar_data.columns:
             self.calendar_data['date'] = pd.to_datetime(
@@ -305,38 +305,70 @@ class TransactionDataProcessor:
             )
         
         # 如果没有周末字段，根据日期计算
-        if 'is_weekend' not in self.calendar_data.columns:
-            self.calendar_data['星期几'] = self.calendar_data['date'].dt.dayofweek
-            self.calendar_data['is_weekend'] = self.calendar_data['星期几'].isin([5, 6]).astype(int)
-        
+        # if 'is_weekend' not in self.calendar_data.columns:
+        #     self.calendar_data['星期几'] = self.calendar_data['date'].dt.dayofweek
+        #     self.calendar_data['is_weekend'] = self.calendar_data['星期几'].isin([5, 6]).astype(int)
+
         # 节假日影响力评分
-        if 'holiday_name' in self.calendar_data.columns:
-            def get_holiday_impact(holiday_name):
-                if pd.isna(holiday_name):
+        if 'holiday_name' in self.calendar_data.columns and 'holiday_type' in self.calendar_data.columns:
+
+            # 确保日期列是datetime类型
+            # if 'ds' not in self.calendar_data.columns:
+            #     # 如果没有ds列，从date列创建
+            #     self.calendar_data['ds'] = pd.to_datetime(self.calendar_data['date'].astype(str), format='%Y%m%d')
+
+            def get_holiday_impact(row):
+                """
+                计算节假日影响力评分
+
+                评分规则：
+                0: 无节假日影响
+                1: 普通节假日或特殊日期
+                2: 电商大促日（双11、双12、618）
+                3: 调休日
+                4: 法定节假日期间
+                """
+                holiday_name = row['holiday_name']
+                holiday_type = row['holiday_type']
+                date = row['date']
+
+                # 如果没有节假日名称，返回0
+                if pd.isna(holiday_name) or holiday_name == '':
                     return 0
-                
-                # 重要节假日对销售影响更大
-                important_holidays = ['春节', '国庆节', '中秋节', '元旦', '清明节', '劳动节', '端午节']
-                major_holidays = ['双11', '双12', '618', '店庆', '周年庆']
-                
-                for holiday in important_holidays:
-                    if holiday in holiday_name:
-                        return 3
-                
+                # 法定节假日期间 - 最高影响力
+                if holiday_type == 'holiday':
+                    return 4
+                # 调休日 - 较高影响力
+                elif holiday_type == 'recess':
+                    return 3
+
+                # 电商大促日
+                major_holidays = [[11, 11], [12, 12], [6, 18]]
                 for holiday in major_holidays:
-                    if holiday in holiday_name:
+                    if date.month == holiday[0] and date.day == holiday[1]:
                         return 2
-                
+
+                # 其他有节日名称的日子（节假日窗口期但不是法定节假日当天）
+                # 例如：春节前几天，国庆节前后等
                 return 1
-            
-            self.calendar_data['节假日影响力'] = self.calendar_data['holiday_name'].apply(get_holiday_impact)
+
+            # 应用函数
+            self.calendar_data['节假日影响力'] = self.calendar_data.apply(get_holiday_impact, axis=1)
     
     def _merge_external_data(self):
         """合并外部数据到交易数据"""
         # 确保交易数据有日期列
         if '日期' not in self.transaction_data.columns:
             return
-        
+
+        # 确保列是datetime类型
+        # if not pd.api.types.is_datetime64_any_dtype(self.transaction_data['日期']):
+        #     print("正在将日期列转换为datetime类型...")
+        #     self.transaction_data['日期'] = pd.to_datetime(self.transaction_data['日期'], errors='coerce')
+        #     # 检查转换结果
+        #     null_count = self.transaction_data['日期'].isna().sum()
+        #     if null_count > 0:
+        #         print(f"警告: 有 {null_count} 个日期转换失败，将被设为NaT")
         # 提取交易日期
         self.transaction_data['日期'] = self.transaction_data['日期'].dt.date
         
@@ -347,7 +379,7 @@ class TransactionDataProcessor:
             
             # 选择需要的天气列
             weather_cols = ['date_date']
-            for col in ['high', 'low', '温差', '天气描述', '天气严重程度', 'code_day', 'text_day']:
+            for col in ['high', 'low', '温差', '天气描述', '天气严重程度', 'code_day', 'text_day', 'text_night', 'code_night']:
                 if col in self.weather_data.columns:
                     weather_cols.append(col)
             
@@ -373,10 +405,9 @@ class TransactionDataProcessor:
             
             # 选择需要的日历列
             calendar_cols = ['date_date']
-            for col in ['is_holiday', 'is_weekend', 'holiday_name', '节假日影响力', 'special_event']:
+            for col in ['holiday_legal', 'weekend', 'workday', 'holiday_name', '节假日影响力', 'special_event']:
                 if col in self.calendar_data.columns:
                     calendar_cols.append(col)
-            
             calendar_subset = self.calendar_data[calendar_cols].copy()
             
             # 合并
@@ -564,12 +595,12 @@ class TransactionDataProcessor:
             'weekend_boost': 1.0
         }
         
-        if 'is_holiday' not in product_data.columns or 'is_weekend' not in product_data.columns:
+        if 'holiday_type' not in product_data.columns or 'holiday_name' not in product_data.columns:
             return result
         
         # 节假日影响
-        holiday_days = product_data[product_data['is_holiday'] == 1]
-        weekday_days = product_data[product_data['is_holiday'] == 0]
+        holiday_days = product_data[product_data['holiday_type'] is not None or product_data['holiday_type'] is not None]
+        weekday_days = product_data[product_data['is_holiday'] is None]
         
         if not holiday_days.empty and not weekday_days.empty:
             holiday_sales = holiday_days['销售数量'].sum() / len(holiday_days)
@@ -578,8 +609,8 @@ class TransactionDataProcessor:
                 result['holiday_boost'] = holiday_sales / weekday_sales
         
         # 周末影响
-        weekend_days = product_data[product_data['is_weekend'] == 1]
-        work_days = product_data[product_data['is_weekend'] == 0]
+        weekend_days = product_data[product_data['weekend'] == 1]
+        work_days = product_data[product_data['weekend'] == 0]
         
         if not weekend_days.empty and not work_days.empty:
             weekend_sales = weekend_days['销售数量'].sum() / len(weekend_days)

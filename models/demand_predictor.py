@@ -217,7 +217,7 @@ class EnhancedDemandPredictor:
             'day_of_week': day_of_week,
             'month': month,
             'day_of_month': day_of_month,
-            'is_weekend': is_weekend,
+            'weekend': is_weekend,
             'in_promotion': in_promotion,
             'time_to_promo_end': time_to_promo_end,
             'hour_sin': hour_sin,
@@ -271,7 +271,7 @@ class EnhancedDemandPredictor:
                 model.fit(X, y)
             self.model = None
             return
-
+        X.to_csv("data/X.csv", encoding="utf-8")
         self.model.fit(X, y)
     def predict_train_set(self,  X: pd.DataFrame):
         """预测训练集"""
@@ -326,7 +326,7 @@ class EnhancedDemandPredictor:
                        product_info: Optional[ProductInfo] = None,
                        weather_features: Optional[Dict] = None,
                        calendar_features: Optional[Dict] = None) -> float:
-        """预测需求量 - 修复参数签名"""
+        """预测需求量"""
 
         # 如果模型未训练，使用启发式模型
         if self.model is None and self.model_type != 'ensemble':
@@ -334,13 +334,15 @@ class EnhancedDemandPredictor:
                 features, discount_rate, time_to_close, current_stock,
                 product_info, weather_features, calendar_features
             )
-        # self.product_cache
-        total_stock = current_stock + self.config['today_saled_stock']
+            # 可用于计算当日已售库存
+        # today_saled_stock = product_info[
+        #     (product_info['日期'] == current_time.date())]['销售数量'].sum()
+        # # self.product_cache
+        # total_stock = current_stock + today_saled_stock
         # 准备特征向量
         feature_vector = self._create_complete_feature_vector(
             features, discount_rate, time_to_close, current_stock,
             product_info, weather_features, calendar_features,
-            total_stock=total_stock
         )
 
         # 转换为DataFrame

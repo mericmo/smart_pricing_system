@@ -2,6 +2,7 @@
 import numpy as np
 from typing import List, Tuple
 
+
 def simulate_schedule_random(schedule: List[dict], stock: int, demand_noise: float = 0.3, seed: int = 42):
     """
     基于 schedule 中 expected_sales 进行泊松抽样（lambda = expected_sales）

@@ -17,6 +17,8 @@ class PricingFeatureEngineer:
         self.config = config
 
     def create_features(self, transaction_data: pd.DataFrame,
+                        calendar_data: pd.DataFrame,
+                        weather_data: pd.DataFrame,
                         product_code: str,
                         store_code: str,
                         promotion_hours: Tuple[int, int],
@@ -34,7 +36,7 @@ class PricingFeatureEngineer:
 
         # 商品历史特征
         historical_features = self._extract_historical_features(
-            transaction_data, product_code, promotion_hours, current_time
+            transaction_data, promotion_hours, current_time
         )
         features.update(historical_features)
 
@@ -44,12 +46,12 @@ class PricingFeatureEngineer:
 
         # 天气特征
         weather_features = self._extract_weather_features(
-            transaction_data, product_code, current_time
+            transaction_data, weather_data, product_code, current_time
         )
         features.update(weather_features)
 
         # 日历特征
-        calendar_features = self._extract_calendar_features(current_time)
+        calendar_features = self._extract_calendar_features(calendar_data, current_time)
         features.update(calendar_features)
 
         # 商品基础信息特征
@@ -67,7 +69,7 @@ class PricingFeatureEngineer:
         # 注释掉的数据预处理代码
         transaction_data = transaction_data[
             (transaction_data['门店编码'] == store_code) & (transaction_data['商品编码'] == product_code) & (
-                        transaction_data['销售数量'] > 0) & (transaction_data["销售金额"] > 0)]
+                        transaction_data['销售数量'] > 0) & (transaction_data["销售金额"] > 0) & (transaction_data["售价"] > 0)]
         if "销售净额" in transaction_data.columns and "销售金额" in transaction_data.columns:
             transaction_data['平均售价'] = transaction_data['销售净额'] / transaction_data['销售净额'] * \
                                            transaction_data['销售数量']
@@ -122,7 +124,7 @@ class PricingFeatureEngineer:
             'day_of_week': day_of_week,
             'day_of_month': day_of_month,
             'month': month,
-            'is_weekend': is_weekend,
+            'weekend': is_weekend,
             'quarter': (month - 1) // 3 + 1,
             'time_to_promo_start': time_to_promo_start,
             'time_to_promo_end': time_to_promo_end,
@@ -148,7 +150,6 @@ class PricingFeatureEngineer:
             return (24 - current_hour) + target_hour
 
     def _extract_historical_features(self, transaction_data: pd.DataFrame,
-                                     product_code: str,
                                      promotion_hours: Tuple[int, int],
                                      current_time: pd.Timestamp) -> Dict:
         """提取历史销售特征"""
@@ -156,21 +157,17 @@ class PricingFeatureEngineer:
         # 筛选商品数据
         # product_data = transaction_data[transaction_data['商品编码'] == product_code].copy()
         product_data = transaction_data.copy()
-        # 可用于计算当日已售库存
-        today_saled_stock = 0
-        if product_code:
-            today_saled_stock = product_data[
-                (product_data['日期'] == current_time.date())]['销售数量'].sum()
+
         if product_data.empty:
             # return self._get_default_historical_features()
             raise ValueError("数据缺失。")
         # 确保时间列是pandas Timestamp
-        if '交易时间' in product_data.columns:
-            if not pd.api.types.is_datetime64_any_dtype(product_data['交易时间']):
-                product_data['交易时间'] = pd.to_datetime(product_data['交易时间'])
-        else:
-            # return self._get_default_historical_features()
-            raise ValueError("数据缺失交易时间字段。")
+        # if '交易时间' in product_data.columns:
+        #     if not pd.api.types.is_datetime64_any_dtype(product_data['交易时间']):
+        #         product_data['交易时间'] = pd.to_datetime(product_data['交易时间'])
+        # else:
+        #     # return self._get_default_historical_features()
+        #     raise ValueError("数据缺失交易时间字段。")
 
         # 计算历史平均销量（最近30天）
         recent_days = 30
@@ -237,7 +234,6 @@ class PricingFeatureEngineer:
         recent_3h_sales = recent_3h_data['销售数量'].sum() if not recent_3h_data.empty else 0.0
 
         return {
-            'today_saled_stock': float(today_saled_stock),
             'hist_avg_sales': float(hist_avg_sales),
             'hist_sales_std': float(hist_sales_std),
             'hist_promo_sales_ratio': float(hist_promo_sales_ratio),
@@ -264,6 +260,7 @@ class PricingFeatureEngineer:
         product_data = transaction_data[transaction_data['商品编码'] == product_code].copy()
 
         if product_data.empty:
+            # 这里考虑直接退出
             return self._get_default_price_features()
 
         # 计算价格统计
@@ -372,6 +369,7 @@ class PricingFeatureEngineer:
         }
 
     def _extract_weather_features(self, transaction_data: pd.DataFrame,
+                                  weather_data: pd.DataFrame,
                                   product_code: str,
                                   current_time: pd.Timestamp) -> Dict:
         """提取天气特征"""
@@ -380,13 +378,16 @@ class PricingFeatureEngineer:
         current_date = current_time.date()
 
         # 查找当天的天气数据
-        if '交易日期' in transaction_data.columns and 'high' in transaction_data.columns:
+        if weather_data is not None and 'date' in weather_data.columns and 'high' in weather_data.columns:
             # 从交易数据中提取
-            today_weather = transaction_data[
-                (transaction_data['交易日期'] == pd.Timestamp(current_date)) &
-                (transaction_data['商品编码'] == product_code)
+            # today_weather = transaction_data[
+            #     (transaction_data['日期'] == pd.Timestamp(current_date)) &
+            #     (transaction_data['商品编码'] == product_code)
+            #     ]
+            weather_data['date'] = pd.to_datetime(weather_data['date']).dt.date
+            today_weather = weather_data[
+                weather_data['date'] == current_date
                 ]
-
             if not today_weather.empty:
                 # 取第一条记录的天气数据
                 row = today_weather.iloc[0]
@@ -439,9 +440,9 @@ class PricingFeatureEngineer:
             'is_haze': 0
         }
 
-    def _extract_calendar_features(self, current_time: pd.Timestamp) -> Dict:
+    def _extract_calendar_features(self, calendar_data: pd.DataFrame, current_time: pd.Timestamp) -> Dict:
         """提取日历特征"""
-
+        current_date = current_time.date()
         day_of_week = current_time.dayofweek
         day_of_month = current_time.day
         month = current_time.month
@@ -451,19 +452,35 @@ class PricingFeatureEngineer:
         holiday_impact = 0
 
         # 重要节假日判断（简化版）
-        if month == 1 and 1 <= day_of_month <= 3:  # 元旦
-            is_holiday = 1
-            holiday_impact = 2
-        elif month == 2 and 10 <= day_of_month <= 17:  # 春节（简化）
-            is_holiday = 1
-            holiday_impact = 3
-        elif month == 5 and 1 <= day_of_month <= 3:  # 劳动节
-            is_holiday = 1
-            holiday_impact = 2
-        elif month == 10 and 1 <= day_of_month <= 7:  # 国庆节
-            is_holiday = 1
-            holiday_impact = 3
+        # if month == 1 and 1 <= day_of_month <= 3:  # 元旦
+        #     is_holiday = 1
+        #     holiday_impact = 2
+        # elif month == 2 and 10 <= day_of_month <= 17:  # 春节（简化）
+        #     is_holiday = 1
+        #     holiday_impact = 3
+        # elif month == 5 and 1 <= day_of_month <= 3:  # 劳动节
+        #     is_holiday = 1
+        #     holiday_impact = 2
+        # elif month == 10 and 1 <= day_of_month <= 7:  # 国庆节
+        #     is_holiday = 1
+        #     holiday_impact = 3
+        if not calendar_data.empty:
+            calendar_data['date'] = pd.to_datetime(calendar_data['date']).dt.date
+            today_row = calendar_data[calendar_data['date'] == current_date]
+            if not today_row.empty:
+                # 检查节假日字段
+                if 'holiday_legal' in today_row.columns:
+                    holiday_value = today_row.iloc[0]['holiday_legal']
+                    # 正确判断是否为节假日
+                    # 假设holiday_legal是1/0或True/False表示节假日
+                    if pd.notna(holiday_value):
+                        is_holiday = int(holiday_value)  # 转换为整数
 
+                # 检查节假日影响力字段
+                if '节假日影响力' in today_row.columns:
+                    impact_value = today_row.iloc[0]['节假日影响力']
+                    if pd.notna(impact_value):
+                        holiday_impact = float(impact_value)
         # 是否为特殊购物日
         is_shopping_day = 0
         if month == 11 and day_of_month == 11:  # 双11
@@ -481,7 +498,7 @@ class PricingFeatureEngineer:
             'holiday_impact': holiday_impact,
             'is_shopping_day': is_shopping_day,
             'is_payday': is_payday,
-            'day_of_year': current_time.dayofyear,
+            'day_of_week': day_of_week,#current_time.dayofyear,
             'week_of_year': current_time.isocalendar()[1]
         }
 
@@ -489,8 +506,8 @@ class PricingFeatureEngineer:
                                   product_code: str) -> Dict:
         """提取商品基础信息特征"""
 
-        product_data = transaction_data[transaction_data['商品编码'] == product_code]
-
+        # product_data = transaction_data[transaction_data['商品编码'] == product_code]
+        product_data = transaction_data.copy()
         if product_data.empty:
             return self._get_default_product_features()
 
