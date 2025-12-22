@@ -1,0 +1,94 @@
+智能定价系统调用关系图
+============================================================
+
+
+模块: core.config
+------------------------------------------------------------
+  ConfigManager() (class)
+
+模块: core.model_evaluator
+------------------------------------------------------------
+  SimplifiedModelVisualizer (class)
+  create_comprehensive_report() (method)
+  _generate_strategy_visualizations_with_pil() (method)
+
+模块: core.pricing_strategy_generator
+------------------------------------------------------------
+  EnhancedPricingStrategyGenerator.__init__() (class)
+  generate_pricing_strategy() (method)
+  _get_product_info() (method)
+  _prepare_features() (method)
+  _train_demand_predictor() (method)
+  _calculate_performance_metrics() (method)
+  _calculate_confidence_score() (method)
+  EnhancedPricingStrategy (dataclass)
+  save_strategy() (method)
+
+模块: data.data_processor
+------------------------------------------------------------
+  TransactionDataProcessor (class)
+  filter_by_product() (method)
+  get_product_summary() (method)
+
+模块: data.feature_engineer
+------------------------------------------------------------
+  PricingFeatureEngineer (class)
+  create_features() (method)
+
+模块: main.py
+------------------------------------------------------------
+  main() (entry)
+  load_data_files() (function)
+  create_sample_data() (function)
+
+模块: models.demand_predictor
+------------------------------------------------------------
+  EnhancedDemandPredictor (class)
+  prepare_training_data_from_transactions() (method)
+  train() (method)
+  predict_train_set() (method)
+  predict_demand() (method)
+
+模块: models.pricing_optimizer
+------------------------------------------------------------
+  PricingOptimizer (class)
+  optimize_staged_pricing() (method)
+  _dynamic_programming_optimization() (method)
+  evaluate_pricing_schedule() (method)
+
+
+调用关系:
+============================================================
+main() --[文件存在]--> load_data_files()
+main() --[文件不存在]--> create_sample_data()
+main() --> ConfigManager()
+main() --> EnhancedPricingStrategyGenerator.__init__()
+EnhancedPricingStrategyGenerator.__init__() --[创建]--> TransactionDataProcessor
+EnhancedPricingStrategyGenerator.__init__() --[创建]--> PricingFeatureEngineer
+EnhancedPricingStrategyGenerator.__init__() --[创建]--> EnhancedDemandPredictor
+EnhancedPricingStrategyGenerator.__init__() --[创建]--> SimplifiedModelVisualizer
+main() --> generate_pricing_strategy()
+generate_pricing_strategy() --> _get_product_info()
+_get_product_info() --> filter_by_product()
+_get_product_info() --> get_product_summary()
+generate_pricing_strategy() --> _prepare_features()
+_prepare_features() --> create_features()
+_prepare_features() --> get_product_summary()
+generate_pricing_strategy() --> _train_demand_predictor()
+_train_demand_predictor() --> prepare_training_data_from_transactions()
+_train_demand_predictor() --> train()
+_train_demand_predictor() --> predict_train_set()
+_train_demand_predictor() --> _calculate_performance_metrics()
+_train_demand_predictor() --> create_comprehensive_report()
+prepare_training_data_from_transactions() --> filter_by_product()
+prepare_training_data_from_transactions() --> get_product_summary()
+generate_pricing_strategy() --[创建]--> PricingOptimizer
+generate_pricing_strategy() --> optimize_staged_pricing()
+optimize_staged_pricing() --> _dynamic_programming_optimization()
+_dynamic_programming_optimization() --> predict_demand()
+generate_pricing_strategy() --> evaluate_pricing_schedule()
+generate_pricing_strategy() --> _calculate_confidence_score()
+generate_pricing_strategy() --> _generate_strategy_visualizations_with_pil()
+generate_pricing_strategy() --[创建]--> EnhancedPricingStrategy
+main() --> save_strategy()
+save_strategy() --> EnhancedPricingStrategy
