@@ -1,432 +1,465 @@
-# main.py
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import json
-import sys
-import os
-from models.demand_predictor import EnhancedDemandPredictor as DemandPredictor
-# 添加项目根目录到Python路径
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.calender_helper import create_china_holidays_from_date_list
-from core.pricing_strategy_generator import EnhancedPricingStrategyGenerator
-from core.config import *
-def load_data_files(transaction_file: str, 
-                   weather_file: str = None,
-                   calendar_file: str = None) -> tuple:
-    """加载数据文件"""
-    
-    print("正在加载数据文件...")
-    
-    # 1. 加载交易数据
-    try:
-        transaction_data = pd.read_csv(transaction_file, encoding='utf-8', parse_dates=['日期', "交易时间"], dtype={"商品编码": str, "门店编码": str})
-        print(f"交易数据加载成功: {len(transaction_data)} 条记录")
-    except Exception as e:
-        print(f"加载交易数据失败: {e}")
-        return None, None, None
-    
-    # 2. 加载天气数据（可选）
+# 导入必要的库
+import shutil  # 文件操作
+import numpy as np  # 数值计算
+import pandas as pd  # 数据处理
+import datetime  # 日期时间处理
 
-    weather_data = None
-    if weather_file and os.path.exists(weather_file):
+# 导入特征仓库
+from feature_store import FeatureStore
+# 数据统一处理
+from data_preprocessor import DataPreprocessor
+# 导入算法
+from algorithm import SalesPredictor
+# 导入可视化管理器
+from visualization_manager import VisualizationManager
+
+from discount_optimizer import DiscountOptimizer
+
+from prediction_manager import PredictionManager
+
+from typing import Dict, List, Optional, Union, Any
+
+
+class HRMain(object):
+    """
+    负责数据处理、特征工程、模型训练和预测
+    """
+
+    def __init__(self, params):
+        """
+        初始化HRMain类
+        :param params: 参数对象，包含所有配置参数
+        """
+        self.params = params
+        self.product_code = params.product_code
+        self.store_code = params.store_code
+        if self.product_code is None or self.store_code is None:
+            print(f"参数缺失：product_code:{self.product_code},store_code:{self.store_code}")
+            raise ValueError("参数缺失")
+
+        self.log = self.params.log
+        self.data_preprocessor = DataPreprocessor(self.product_code, self.store_code)
+        # 初始化特征仓库
+        self.feature_store = FeatureStore()
+        # 初始化算法
+        self.sales_predictor = SalesPredictor(forecast_horizon=7)
+
+        self.best_model_name = ''
+        # 初始化可视化管理器
+        self.visualization_manager = VisualizationManager(log=self.log, result_dir_path=self.params.result_dir_path)
+        return
+
+    def load_data(self):
+
+        self.log.info('load_data')
+
+        # 加载销售数据
+        hsr_df = pd.read_csv(self.params.raw_sales_path, encoding='utf-8', parse_dates=['日期', '交易时间'],
+                             dtype={"商品编码": str, "门店编码": str, "流水单号": str, "会员id": str})
+        # 用Pandas快速检查数据
+        print("HuarunStore数据基本信息：")
+        print(f"数据行数：{len(hsr_df)}")
+        print(f"数据列数：{len(hsr_df.columns)}")
+        print(f"时间范围：{hsr_df['日期'].min()} 到 {hsr_df['日期'].max()}")
+        print(f"商品种类数：{hsr_df['商品编码'].nunique()}")
+        print(f"商品小类数：{hsr_df['小类编码'].nunique()}")
+        print(f"统计会员数：{hsr_df['会员id'].nunique()}")
+        print(f"统计非会员数(可能有重复)：{hsr_df['会员id'].isnull().sum()}")
+
+        # 加载日历数据
+        calendar_df = pd.read_csv(self.params.raw_calendar_path)
+
+        # 加载天气
+        weather_df = pd.read_csv(self.params.raw_weather_path)
+
+        # 进行数据检测
+        self.log.info("销售数据缺失值统计：")
+        self.log.info(hsr_df.isnull().sum())
+        self.log.info("日历数据缺失值统计：")
+        self.log.info(calendar_df.isnull().sum())
+        self.log.info("天气数据缺失值统计：")
+        self.log.info(weather_df.isnull().sum())
+
+        return hsr_df, calendar_df, weather_df
+
+    def create_features_pipeline(self):
+        """特征创建流水线"""
+        self.log.info('开始特征工程...')
+
+        # 1. 基础预处理
+        sales_processed = self.data_preprocessor.preprocess_sales_data(self.hsr_df)
+        weather_processed = self.data_preprocessor.preprocess_weather_data(self.weather_df)
+        calendar_processed = self.data_preprocessor.preprocess_calendar_data(self.calendar_df)
+
+        # 2. 时间特征
+        sales_with_time = self.feature_store.create_time_features(sales_processed)
+
+        # 3. 滞后特征（需要按商品单独计算）
+        sales_with_lag = self.feature_store.create_lag_features(sales_with_time)
+
+        # 4. 滚动特征（需要按商品单独计算）
+        sales_with_rolling = self.feature_store.create_rolling_features(sales_with_lag)
+
+        # 5. 趋势特征
+        sales_with_trend = self.feature_store.create_trend_features(sales_with_rolling)
+
+        # 6. 合并天气特征
+        sales_with_weather = self.feature_store.create_weather_enhanced_features(
+            sales_with_trend, weather_processed
+        )
+
+        # 7. 合并日历特征
+        sales_with_calendar = self.feature_store.create_calendar_enhanced_features(
+            sales_with_weather, calendar_processed
+        )
+
+        # 8. 交互特征
+        final_features = self.feature_store.create_interaction_features(sales_with_calendar)
+
+        self.log.info(f'特征工程完成，生成特征数量: {len(final_features.columns)}')
+        self.log.info(f'特征列表: {list(final_features.columns)}')
+
+        return final_features
+
+    def train_models(self, features_df):
+        """训练多个模型"""
+        self.log.info('开始训练模型...')
+
+        # 使用train_all_models方法训练所有模型
+        trained_models = self.sales_predictor.train_all_models(features_df)
+
+        # 获取模型比较结果
+        comparison_df = self.sales_predictor.compare_models()
+        self.log.info('模型性能比较:')
+        for model_name, metrics in comparison_df.iterrows():
+            self.log.info(f'{model_name}: {metrics.to_dict()}')
+
+        # 使用可视化管理器创建模型比较可视化
+        self.visualization_manager.create_model_comparison_visualization(comparison_df)
+
+        # 获取最佳模型（基于RMSE指标）
+        best_model_name = comparison_df.index[0]  # 第一个是最佳模型
+        self.log.info(f'最佳模型: {best_model_name}')
+
+        # 获取特征重要性（仅适用于基于树的模型）
+        tree_models = ['lightgbm', 'xgboost', 'random_forest', 'gradient_boosting']
+        for model_name in tree_models:
+            if model_name in trained_models:
+                try:
+                    importance = self.sales_predictor.get_feature_importance(model_name, top_n=10)
+                    if importance:
+                        self.log.info(f'{model_name}特征重要性Top10:')
+                        for feature, imp in importance.items():
+                            self.log.info(f'  {feature}: {imp}')
+                except Exception as e:
+                    self.log.error(f'获取{model_name}特征重要性失败: {str(e)}')
+
+        # 保存最佳模型
+        if best_model_name in trained_models:
+            model_path = self.params.model_dir_path / f'best_model_{best_model_name}.pkl'
+            self.sales_predictor.save_model(best_model_name, str(model_path))
+            self.log.info(f'最佳模型已保存到: {model_path}')
+
+        return comparison_df, best_model_name, trained_models
+
+    def make_predictions(self, features_df, model_name=None, model=None):
+        """进行预测（仅在测试集上）"""
+        self.log.info('开始预测...')
+
+        # 如果没有指定模型，使用训练好的最佳模型
+        if model is None:
+            # 尝试加载已保存的最佳模型
+            model_files = list(self.params.model_dir_path.glob('best_model_*.pkl'))
+            if model_files:
+                model_path = model_files[0]
+                best_model_name = model_path.stem.replace('best_model_', '')
+                self.log.info(f'加载已保存的模型: {best_model_name}')
+
+                # 使用SalesPredictor的predict方法进行预测
+                try:
+                    # 关键修改：只对测试集进行预测，而不是整个数据集
+                    # 首先需要获取测试集数据
+                    X_train, X_test, y_train, y_test, feature_columns = self.sales_predictor.prepare_features_for_training(
+                        features_df, target_col='销售数量'
+                    )
+                    X_test.to_csv("X_test.csv", encoding='utf-8')
+                    # 创建测试集的特征DataFrame（包含原始列信息）
+                    test_indices = X_test.index
+                    test_features_df = features_df.loc[test_indices].copy()
+
+                    # 只对测试集进行预测
+                    predictions = self.sales_predictor.predict(test_features_df, model_name=best_model_name)
+
+                    # 保存预测结果
+                    predictions_path = self.params.result_dir_path / f'predictions_{best_model_name}_test_set.csv'
+                    predictions.to_csv(predictions_path, index=False, encoding='utf-8')
+                    self.log.info(f'测试集预测结果已保存到: {predictions_path}')
+
+                    # 计算预测误差统计（测试集上的真实性能）
+                    if '实际销量' in predictions.columns:
+                        actual = predictions['实际销量']
+                        predicted = predictions['预测销量']
+                        error = actual - predicted
+
+                        mae = np.mean(np.abs(error))
+                        mse = np.mean(error ** 2)
+                        rmse = np.sqrt(mse)
+                        mape = np.mean(np.abs(error / np.where(actual != 0, actual, 1))) * 100
+
+                        self.log.info(f'测试集预测误差统计:')
+                        self.log.info(f'  MAE: {mae:.4f}')
+                        self.log.info(f'  MSE: {mse:.4f}')
+                        self.log.info(f'  RMSE: {rmse:.4f}')
+                        self.log.info(f'  MAPE: {mape:.4f}%')
+                        self.log.info(f'  测试集样本数量: {len(predictions)}')
+
+                    return predictions
+                except Exception as e:
+                    self.log.error(f'预测失败1: {str(e)}')
+                    return None
+            else:
+                self.log.error('没有可用的模型进行预测')
+                return None
+        else:
+            # 如果提供了模型，使用提供的模型进行预测
+            try:
+                # 同样只对测试集进行预测
+                X_train, X_test, y_train, y_test, feature_columns = self.sales_predictor.prepare_features_for_training(
+                    features_df, target_col='销售数量'
+                )
+                # X_test.to_csv("X_test.csv", encoding='utf-8')
+                test_indices = X_test.index
+                test_features_df = features_df.loc[test_indices].copy()
+
+                predictions = self.sales_predictor.predict(test_features_df, model_name=model_name)
+
+                # 保存预测结果
+                predictions_path = self.params.result_dir_path / f'predictions_{model_name}_test_set.csv'
+                predictions.to_csv(predictions_path, index=False, encoding='utf-8')
+                self.log.info(f'测试集预测结果已保存到: {predictions_path}')
+
+                return predictions
+            except Exception as e:
+                self.log.error(f'预测失败: {str(e)}')
+                return None
+
+    def run_discount_optimization(self, input_params):
+        """
+        运行折扣优化算法
+
+        参数:
+        - input_params: 输入参数字典
+
+        返回:
+        - 折扣方案结果
+        """
+        self.log.info('开始折扣方案优化...')
+
+        # 初始化折扣优化器
+        discount_optimizer = DiscountOptimizer(
+            model_predictor=self.sales_predictor,
+            feature_store=self.feature_store,
+            data_preprocessor=self.data_preprocessor
+        )
+
         try:
-            weather_data = pd.read_csv(weather_file, encoding='utf-8', parse_dates=['date'])
-            print(f"天气数据加载成功: {len(weather_data)} 条记录")
+            # 生成折扣方案
+            discount_plan = discount_optimizer.generate_discount_plan(input_params)
+
+            self.log.info(f'折扣方案生成成功，商品: {input_params.get("product_code")}')
+            self.log.info(f'预期清空率: {discount_plan.get("plan_metrics", {}).get("clearance_rate", 0):.1%}')
+            self.log.info(f'预期总利润: {discount_plan.get("plan_metrics", {}).get("total_expected_profit", 0):.2f}')
+
+            # 可视化折扣方案
+            self.visualization_manager.visualize_discount_plan(discount_plan)
+
+            # 保存方案结果
+            result_path = self.params.result_dir_path / f'discount_plan_{input_params.get("product_code")}.json'
+            import json
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(discount_plan, f, ensure_ascii=False, indent=2)
+
+            self.log.info(f'折扣方案已保存到: {result_path}')
+
+            return discount_plan
+
         except Exception as e:
-            print(f"加载天气数据失败: {e}")
-    
-    # 3. 加载日历数据（可选）
-    calendar_data = None
-    date_series = transaction_data['日期'].unique()
-    calendar_data = create_china_holidays_from_date_list(date_series=date_series)
-    # if calendar_file and os.path.exists(calendar_file):
-    #     try:
-    #         calendar_data = pd.read_csv(calendar_file, encoding='utf-8')
-    #         print(f"日历数据加载成功: {len(calendar_data)} 条记录")
-    #     except Exception as e:
-    #         print(f"加载日历数据失败: {e}")
-    
-    return transaction_data, weather_data, calendar_data
+            self.log.error(f'折扣方案优化失败: {str(e)}')
+            return None
 
-def create_sample_data() -> tuple:
-    """创建示例数据"""
-    print("创建示例数据...")
-    
-    # 创建交易数据示例
-    np.random.seed(42)
-    
-    dates = pd.date_range('2024-12-01', '2024-12-31', freq='D')
-    product_codes = ['4834512', '4701098', '5012345', '5123456']
-    product_names = ['福荫川式豆花380g', '福荫韧豆腐380g', '鲜奶面包500g', '酸奶200ml']
-    prices = [7.99, 5.99, 12.99, 8.99]
-    categories = ['20010101', '20010101', '20020101', '20030101']
-    
-    records = []
-    
-    for date in dates:
-        for i, (product_code, product_name, price, category) in enumerate(
-            zip(product_codes, product_names, prices, categories)):
-            
-            # 每天生成3-8条交易记录
-            num_transactions = np.random.randint(3, 9)
-            
-            for _ in range(num_transactions):
-                # 交易时间在8:00-22:00之间
-                hour = np.random.randint(8, 22)
-                minute = np.random.randint(0, 60)
-                
-                # 折扣概率（晚上20点后概率更高）
-                if hour >= 20:
-                    discount_prob = 0.6
-                else:
-                    discount_prob = 0.2
-                
-                if np.random.random() < discount_prob:
-                    discount = np.random.choice([0.7, 0.8, 0.9])
-                    discount_type = f"促销{discount*10}折"
-                else:
-                    discount = 1.0
-                    discount_type = "n-无折扣促销"
-                
-                # 销售数量
-                if discount < 1.0:
-                    quantity = np.random.randint(1, 4)  # 促销时买的多
-                else:
-                    quantity = np.random.randint(1, 2)
-                
-                # 计算金额
-                sales_amount = price * discount * quantity
-                discount_amount = price * quantity - sales_amount if discount < 1.0 else 0
-                
-                record = {
-                    '日期': date.strftime('%Y/%m/%d'),
-                    '门店编码': '205625',
-                    '流水单号': f"205625P{np.random.randint(100, 999)}{date.strftime('%Y%m%d')}{np.random.randint(1000, 9999)}",
-                    '会员id': f"{np.random.randint(1000000000000000000, 9999999999999999999)}" if np.random.random() < 0.5 else None,
-                    '交易时间': f"{date.strftime('%Y/%m/%d')} {hour:02d}:{minute:02d}",
-                    '渠道名称': '线下销售',
-                    '平台触点名称': np.random.choice(['智能POS人工', '智能POS自助']),
-                    '小类编码': category,
-                    '商品编码': product_code,
-                    '商品名称': product_name,
-                    '售价': price,
-                    '折扣类型': discount_type,
-                    '税率': 13,
-                    '销售数量': quantity,
-                    '销售金额': round(sales_amount, 2),
-                    '销售净额': round(sales_amount * 0.87, 2),  # 扣除税
-                    '折扣金额': round(discount_amount, 2)
-                }
-                
-                records.append(record)
-    
-    transaction_data = pd.DataFrame(records)
-    
-    # 创建天气数据示例
-    weather_records = []
-    for date in dates:
-        weather_records.append({
-            'date': date.strftime('%Y/%m/%d'),
-            'text_day': np.random.choice(['晴', '多云', '阴', '阵雨']),
-            'code_day': np.random.choice(['01', '02', '03', '04']),
-            'text_night': np.random.choice(['晴', '多云', '阴']),
-            'code_night': np.random.choice(['01', '02', '03']),
-            'high': np.random.randint(20, 35),
-            'low': np.random.randint(15, 25)
-        })
-    
-    weather_data = pd.DataFrame(weather_records)
-    
-    # 创建日历数据示例
-    calendar_records = []
-    for date in dates:
-        day_of_week = date.weekday()
-        is_weekend = 1 if day_of_week >= 5 else 0
-        is_holiday = 0
-        holiday_name = None
-        
-        # 模拟节假日
-        if date.day in [1, 2, 3]:  # 月初几天模拟元旦
-            is_holiday = 1
-            holiday_name = '元旦'
-        elif date.day in [24, 25, 26]:  # 模拟圣诞节
-            is_holiday = 1
-            holiday_name = '圣诞节'
-        
-        calendar_records.append({
-            'date': date.strftime('%Y/%m/%d'),
-            'is_holiday': is_holiday,
-            'is_weekend': is_weekend,
-            'holiday_name': holiday_name,
-            'special_event': '双12' if date.day == 12 else None
-        })
-    
-    calendar_data = pd.DataFrame(calendar_records)
-    
-    print(f"示例数据创建完成: {len(transaction_data)} 条交易记录")
-    
-    return transaction_data, weather_data, calendar_data
+    def batch_discount_optimization(self, products_params):
+        """
+        批量折扣优化
 
-def main():
-    """主函数"""
-    
-    print("=" * 70)
-    print("智能打折促销系统 - 日清品阶梯定价优化")
-    print("=" * 70)
-    
-    # 1. 加载数据
-    print("\n1. 数据加载")
-    print("-" * 40)
-    
-    # 尝试加载实际数据文件
-    transaction_file = "data/historical_transactions.csv"
-    weather_file = "data/weather_info.csv"
-    calendar_file = "data/calender_info.csv"
-    
-    if os.path.exists(transaction_file):
-        transaction_data, weather_data, calendar_data = load_data_files(
-            transaction_file, weather_file, calendar_file
+        参数:
+        - products_params: 商品参数列表
+
+        返回:
+        - 批量优化结果
+        """
+        self.log.info(f'开始批量折扣优化，共{len(products_params)}个商品')
+
+        results = []
+        for params in products_params:
+            try:
+                result = self.run_discount_optimization(params)
+                results.append({
+                    'product_code': params.get('product_code'),
+                    'success': True if result else False,
+                    'result': result
+                })
+            except Exception as e:
+                results.append({
+                    'product_code': params.get('product_code'),
+                    'success': False,
+                    'error': str(e)
+                })
+
+        # 生成批量报告
+        self._generate_batch_report(results)
+
+        return results
+
+    def _generate_batch_report(self, results):
+        """生成批量优化报告"""
+        successful = [r for r in results if r['success']]
+        failed = [r for r in results if not r['success']]
+
+        self.log.info(f'批量优化完成: 成功{len(successful)}个, 失败{len(failed)}个')
+
+        if successful:
+            # 计算总体指标
+            total_expected_profit = sum(
+                r['result'].get('plan_metrics', {}).get('total_expected_profit', 0)
+                for r in successful
+            )
+            avg_clearance_rate = np.mean([
+                r['result'].get('plan_metrics', {}).get('clearance_rate', 0)
+                for r in successful
+            ])
+
+            self.log.info(f'预期总利润: {total_expected_profit:.2f}')
+            self.log.info(f'平均清空率: {avg_clearance_rate:.1%}')
+
+        # 保存报告
+        report_data = {
+            'summary': {
+                'total_products': len(results),
+                'successful': len(successful),
+                'failed': len(failed),
+                'success_rate': len(successful) / len(results) if results else 0
+            },
+            'details': results
+        }
+
+        report_path = self.params.result_dir_path / 'batch_discount_optimization_report.json'
+        import json
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump(report_data, f, ensure_ascii=False, indent=2)
+
+        self.log.info(f'批量优化报告已保存到: {report_path}')
+
+    def predict(self, product_code: str, store_code: str,
+                predict_date: datetime, time_windows: Optional[List[int]] = None, model_name: str = None):
+        """
+        HRMain的预测方法
+
+        参数:
+        - product_code: 商品编码
+        - store_code: 门店编码
+        - predict_date: 预测日期
+        - model_name: 模型名称
+
+        返回:
+        - 预测结果DataFrame
+        """
+        # 处理日期参数
+        self.log.info(f"开始预测: 商品={product_code}, 门店={store_code}, 日期={predict_date}")
+
+        # 初始化预测管理器
+        prediction_manager = PredictionManager(self)
+        prediction_manager.initialize_prediction_builder()
+
+        # 执行预测
+        result = prediction_manager.predict_sales(
+            product_code, store_code, predict_date, time_windows, model_name
         )
-    else:
-        print("未找到数据文件，使用示例数据")
-        transaction_data, weather_data, calendar_data = create_sample_data()
-    
-    if transaction_data is None:
-        print("无法加载数据，程序退出")
-        return
-    
-    # 2. 初始化系统
-    print("\n2. 系统初始化")
-    print("-" * 40)
-    # 获取用户输入
-    product_code = "8006144"  # input("\n请输入商品编码: ").strip()
-    try:
-        config_manager = ConfigManager()
-        config = config_manager.config
-        config['product_code'] = product_code
-        strategy_generator = EnhancedPricingStrategyGenerator(
-            transaction_data=transaction_data,
-            weather_data=weather_data,
-            calendar_data=calendar_data,
-            config=config  # 可以使用配置管理器
-        )
-        print("系统初始化成功")
-    except Exception as e:
-        print(f"系统初始化失败: {e}")
-        return
-    
-    # 3. 用户输入
-    print("\n3. 定价参数输入")
-    print("-" * 40)
-    
-    # 显示可用的商品
-    available_products = transaction_data['商品编码'].unique()[:5]  # 显示前5个
-    available_product_names = transaction_data.drop_duplicates('商品编码').set_index('商品编码')['商品名称'].to_dict()
-    
-    print("可选的商品编码:")
-    for code in available_products:
-        name = available_product_names.get(code, '未知商品')
-        avg_price = transaction_data[transaction_data['商品编码'] == code]['售价'].mean()
-        print(f"  {code}: {name} (平均价格: ¥{avg_price:.2f})")
-    
 
-    
-    # 验证商品编码
-    if product_code not in transaction_data['商品编码'].values:
-        print(f"警告: 商品编码 {product_code} 不在数据中，将继续使用")
-    
-    try:
-        initial_stock = 5 # int(input("请输入当前库存数量: "))
-        # original_price = float(input("请输入商品原价: "))
-        # cost_price = float(input("请输入商品成本价: "))
-    except ValueError:
-        print("输入错误，请重新运行程序")
+        # 保存预测结果
+        if not result.empty:
+            result_path = self.params.result_dir_path / f'prediction_{product_code}_{predict_date}.csv'.replace(":", '')
+            result.to_csv(result_path, index=False, encoding='utf-8')
+            self.log.info(f"预测结果已保存到: {result_path}")
+
+        return result
+
+    def main(self):
+        """
+        主函数，执行整个预测流程
+        :return: 无
+        """
+        # 输出日志信息
+        self.log.info('main')
+
+        # 加载数据
+        self.hsr_df, self.calendar_df, self.weather_df = self.load_data()
+
+        # 特征工程
+        self.features_df = self.create_features_pipeline()
+
+        # 训练模型
+        model_comparison, best_model_name, trained_models = self.train_models(self.features_df)
+
+        # 进行预测
+        if best_model_name in trained_models:
+            self.best_model_name = best_model_name
+            predictions = self.make_predictions(self.features_df,
+                                                model_name=best_model_name,
+                                                model=trained_models[best_model_name])
+
+        # 使用可视化管理器可视化预测结果
+        self.visualization_manager.visualize_results(predictions)
+
+        # 重置目录路径
+        self.params.reset_dir_path()
+        try:
+            # 输出日志信息，尝试清除工作目录
+            self.log.info('clear work_dir')
+            shutil.rmtree(self.params.work_dir_path)
+        except Exception:
+            # 输出异常信息
+            self.log.exception()
         return
-    
-    # 促销设置
-    print("\n促销设置:")
-    promotion_start = "20:00" #input("开始时间 (HH:MM, 默认20:00): ").strip() or "20:00"
-    promotion_end = "22:00" #input("结束时间 (HH:MM, 默认22:00): ").strip() or "22:00"
-    
-    # 折扣范围
-    print("\n折扣范围:")
-    min_discount = 0.4 # float(input("最低折扣 (如0.4表示4折): ") or "0.4")
-    max_discount = 0.8 # float(input("最高折扣 (如0.9表示9折): ") or "0.9")
-    
-    # 时间段
-    time_segments = 2 # int(input("\n时间段数量 (默认4): ") or "4")
-    
-    # 门店编码（可选）
-    store_code = "205625" #input("门店编码 (可选，直接回车跳过): ").strip() or None
-    
-    # 是否使用外部数据
-    use_weather = True # input("\n是否使用天气数据? (y/n, 默认y): ").strip().lower() in ['y', '']
-    use_calendar = True # input("是否使用日历数据? (y/n, 默认y): ").strip().lower() in ['y', '']
-    
-    # 4. 生成策略
-    print(f"\n4. 正在生成定价策略...")
-    print("-" * 40)
-    
-    try:
-        strategy = strategy_generator.generate_pricing_strategy(
-            product_code=product_code,
-            initial_stock=initial_stock,
-            promotion_start=promotion_start,
-            promotion_end=promotion_end,
-            min_discount=min_discount,
-            max_discount=max_discount,
-            time_segments=time_segments,
-            store_code=store_code,
-            current_time=pd.to_datetime('2025-10-31 10:21:25'),
-            use_weather=use_weather,
-            use_calendar=use_calendar,
-            generate_visualizations=True
-        )
-    except Exception as e:
-        print(f"生成策略失败: {e}")
-        return
-    
-    # 5. 显示结果
-    print("\n" + "=" * 70)
-    print("定价策略生成完成!")
-    print("=" * 70)
-    
-    # 基本信息
-    print(f"\n策略ID: {strategy.strategy_id}")
-    print(f"生成时间: {strategy.generated_time}")
-    print(f"置信度: {strategy.confidence_score:.1%}")
-    
-    # 商品信息
-    print(f"\n商品信息:")
-    print(f"  商品编码: {strategy.product_code}")
-    print(f"  商品名称: {strategy.product_name}")
-    print(f"  原价: ¥{strategy.original_price:.2f}")
-    print(f"  成本价: ¥{strategy.cost_price:.2f}")
-    print(f"  初始库存: {strategy.initial_stock}件")
-    
-    # 促销设置
-    print(f"\n促销设置:")
-    print(f"  促销时段: {strategy.promotion_start} - {strategy.promotion_end}")
-    print(f"  折扣范围: {strategy.min_discount:.1%} - {strategy.max_discount:.1%}")
-    print(f"  时间段数: {strategy.time_segments}")
-    print(f"  使用天气数据: {'是' if strategy.weather_consideration else '否'}")
-    print(f"  使用日历数据: {'是' if strategy.calendar_consideration else '否'}")
-    
-    # 阶梯定价方案
-    print(f"\n阶梯定价方案:")
-    print("-" * 85)
-    print(f"{'时间段':<18} {'折扣':<12} {'价格':<10} {'预期销量':<12} {'预期收入':<12} {'预期利润':<12}")
-    print("-" * 85)
-    
-    total_sales = 0
-    total_revenue = 0
-    total_profit = 0
-    
-    for stage in strategy.pricing_schedule:
-        print(f"{stage['start_time']}-{stage['end_time']:<18} "
-              f"{stage['discount_percentage']:<12} "
-              f"¥{stage['price']:<9.2f} "
-              f"{stage['expected_sales']:<12} "
-              f"¥{stage['expected_revenue']:<11.2f} "
-              f"¥{stage['expected_profit']:<11.2f}")
-        
-        total_sales += stage['expected_sales']
-        total_revenue += stage['expected_revenue']
-        total_profit += stage['expected_profit']
-    
-    print("-" * 85)
-    print(f"{'总计':<18} {'':<12} {'':<10} "
-          f"{total_sales:<12} "
-          f"¥{total_revenue:<11.2f} "
-          f"¥{total_profit:<11.2f}")
-    
-    # 方案评估
-    print(f"\n方案评估:")
-    eval_result = strategy.evaluation
-    print(f"  预期总销量: {eval_result['total_expected_sales']}件")
-    print(f"  预期总收入: ¥{eval_result['total_revenue']:.2f}")
-    print(f"  预期总利润: ¥{eval_result['total_profit']:.2f}")
-    print(f"  剩余库存: {eval_result['remaining_stock']}件")
-    print(f"  售罄概率: {eval_result['sell_out_probability']:.1%}")
-    print(f"  利润率: {eval_result['profit_margin']:.1%}")
-    print(f"  平均折扣: {eval_result['average_discount']:.1%}")
-    print(f"  库存清空率: {eval_result['stock_clearance_rate']:.1%}")
-    if 'recommendation' in eval_result:
-        print(f"  推荐建议: {eval_result['recommendation']}")
 
-    # 访问可视化结果
-    if strategy.visualization_paths:
-        print(f"策略报告: {strategy.visualization_paths.get('strategy_report')}")
-        print(f"训练报告: {strategy.model_performance.get('plot_paths', {}).get('training_report')}")
-    # print(f"可视化输出目录: {strategy_generator.viz_output_dir}")
-    # print(f"目录是否存在: {os.path.exists(strategy_generator.viz_output_dir)}")
 
-    # 6. 保存策略
-    print("\n6. 策略保存")
-    print("-" * 40)
-    
-    save_option = 'n' #input("是否保存策略到文件? (y/n): ").strip().lower()
-    if save_option == 'y':
-        # 创建输出目录
-        output_dir = "output/strategies"
-        os.makedirs(output_dir, exist_ok=True)
-        safe_strategy_id = strategy.strategy_id.replace(':', '_')
-        filename = f"{safe_strategy_id}.json"
-        # filename = f"{strategy.strategy_id}.json"
-        filepath = os.path.join(output_dir, filename)
-        
-        strategy_generator.save_strategy(strategy, filepath)
-        print(f"策略已保存到: {filepath}")
-        
-        # 同时保存为CSV格式（便于查看）
-        csv_filepath = filepath.replace('.json', '.csv')
-        schedule_df = pd.DataFrame(strategy.pricing_schedule)
-        schedule_df.to_csv(csv_filepath, index=False, encoding='utf-8')
-        print(f"定价方案CSV已保存到: {csv_filepath}")
-    
-    # 7. 导出执行计划
-    print("\n7. 执行计划导出")
-    print("-" * 40)
-    
-    export_option = 'n' # input("是否导出执行计划表? (y/n): ").strip().lower()
-    if export_option == 'y':
-        execution_plan = []
-        # current_time = datetime.strptime(promotion_start, "%H:%M")
-        
-        for stage in strategy.pricing_schedule:
-            # 解析时间段
-            # start_hour, start_minute = map(int, stage['start_time'].split(':'))
-            # end_hour, end_minute = map(int, stage['end_time'].split(':'))
-            
-            # 创建执行计划项
-            plan_item = {
-                '执行时间': stage['start_time'],
-                '结束时间': stage['end_time'],
-                '折扣力度': stage['discount_percentage'],
-                '执行价格': f"¥{stage['price']:.2f}",
-                '价签更新': "是",
-                '系统同步': "是",
-                '负责人': "店长/值班经理",
-                '检查时间': stage['end_time'],
-                '备注': f"预期销量: {stage['expected_sales']}件"
-            }
-            
-            execution_plan.append(plan_item)
-        
-        # 保存执行计划
-        execution_df = pd.DataFrame(execution_plan)
-        execution_file = f"output/execution_plan_{strategy.strategy_id.replace(':', '_')}.csv"
-        os.makedirs("output", exist_ok=True)
-        execution_df.to_csv(execution_file, index=False, encoding='utf-8')
-        
-        print(f"执行计划已保存到: {execution_file}")
-        print("\n执行计划预览:")
-        print(execution_df.to_string(index=False))
-    
-    print("\n" + "=" * 70)
-    print("程序执行完成!")
-    print("=" * 70)
+if __name__ == '__main__':
+    # 导入参数
+    from param import *
 
-if __name__ == "__main__":
-    main()
+    # 实例化HRMain类
+    m = HRMain(params)
+    # 打印日志
+    m.log.info('******** start')
+    m.log.info(parser.parse_args())
+    # 记录开始时间
+    m.start_dt = datetime.datetime.now()
+
+    # 打印参数设置
+    m.log.info(m.params.setting)
+    # 运行主函数
+    m.main()
+
+    # 进行预测
+    result = m.predict(
+        product_code=params.product_code,
+        store_code=params.store_code,
+        time_windows=list(range(36, 44)),
+        predict_date=pd.to_datetime("2025-11-01"),
+        model_name=m.best_model_name
+    )
+
+    print(result.head())
+
+    # 打印结束时间和运行时间
+    m.log.info(
+        ['******** end', 'start_time', m.start_dt, 'process_time', datetime.datetime.now() - m.start_dt])
